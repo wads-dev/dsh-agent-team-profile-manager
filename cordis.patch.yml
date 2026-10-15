@@ -2,8 +2,8 @@
 - id: tool-agent-team
   disabled: true
 - insert:
-    - id: agent-team-model-router
-      name: dsh-agent-team-model-router
+    - id: agent-team-profile-manager
+      name: dsh-agent-team-profile-manager
       config:
         freshProvider: spawn
         forkProvider: fork

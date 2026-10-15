@@ -7,7 +7,7 @@ import { ModelRouter } from './routing/model-router.js';
 import { infoSchema, switchSchema, listSchema, jsonOutput } from './tools/schemas.js';
 import { hasDelegationModelRequest } from './vendor/model-selection.js';
 import { installDelegationPolicy } from './delegation-policy.js';
-export const name = 'agent-team-model-router';
+export const name = 'agent-team-profile-manager';
 export const inject = ['agents', 'sessions', 'agentTeams', 'subagents', 'tools', 'llm', 'systemPrompt', 'sessionProjections'];
 const routeFields = {
   provider: { type: 'string', description: 'Registered LLM provider. Supply together with model; discover routes with list_models.' },
@@ -17,7 +17,7 @@ const routeFields = {
 export async function apply(ctx, config = {}) {
   assertCompatibility(ctx);
   for (const agent of ctx.agents.list()) {
-    if (ctx.tools.get('spawn_teammate', agent)) throw new Error('agent-team-model-router: Team tools are already mounted. Stop the profile and disable the standalone tool-agent-team before enabling the router; existing sessions are not modified.');
+    if (ctx.tools.get('spawn_teammate', agent)) throw new Error('agent-team-profile-manager: Team tools are already mounted. Stop the profile and disable the standalone tool-agent-team before enabling the router; existing sessions are not modified.');
   }
   ctx.sessionProjections.register(routingProjection);
   ctx.sessionProjections.register(displayNamesProjection);
@@ -139,5 +139,5 @@ export async function apply(ctx, config = {}) {
   for (const agent of ctx.agents.list()) install(agent);
   // Mount upstream tools AFTER decoration, avoiding replacement of live registry definitions.
   await ctx.plugin(TeamTools, { freshProvider: config.freshProvider ?? 'spawn', forkProvider: config.forkProvider ?? 'fork' });
-  ctx.logger.info('[agent-team-model-router] loaded for DSH 0.2.1-alpha.3');
+  ctx.logger.info('[agent-team-profile-manager] loaded for DSH 0.2.1-alpha.3');
 }

@@ -1,7 +1,18 @@
 {
-  "name": "dsh-agent-team-model-router",
+  "name": "dsh-agent-team-profile-manager",
   "version": "0.2.1-alpha.3",
-  "description": "Explicit next-invocation Agent Teams model routing for DSH 0.2.1-alpha.3",
+  "description": "Agent Teams profile manager for DSH: runtime model routing, display names and Team-first delegation",
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wads-dev/dsh-agent-team-profile-manager.git"
+  },
+  "homepage": "https://github.com/wads-dev/dsh-agent-team-profile-manager#readme",
+  "bugs": { "url": "https://github.com/wads-dev/dsh-agent-team-profile-manager/issues" },
+  "keywords": ["dsh", "agent-teams", "profile-manager", "model-routing", "cordis-plugin"],
   "type": "module",
   "main": "lib/index.js",
   "exports": {

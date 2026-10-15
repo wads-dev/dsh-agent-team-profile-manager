@@ -1,0 +1,97 @@
+name: Publish to npm
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          registry-url: https://registry.npmjs.org/
+      - name: Install OIDC-capable npm
+        run: npm install --global npm@11.10.1
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Build Host and Web plugin
+        run: npm run build
+      - name: Run automated tests and release checks
+        run: npm test
+      - name: Validate release metadata
+        id: release
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const repository = 'git+https://github.com/' + process.env.GITHUB_REPOSITORY + '.git';
+          if (pkg.name !== 'dsh-agent-team-profile-manager' || pkg.private || pkg.repository?.url !== repository) throw new Error('Invalid publication metadata');
+          if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(pkg.version)) throw new Error('Invalid version');
+          if (pkg.publishConfig?.tag !== 'latest' || pkg.publishConfig?.access !== 'public') throw new Error('Invalid publication configuration');
+          const prereleaseTag = pkg.version.includes('-') ? pkg.version.split('-')[1].split('.')[0] : '';
+          if (prereleaseTag && !/^[a-z][a-z0-9._-]*$/.test(prereleaseTag)) throw new Error('Invalid prerelease dist-tag');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + pkg.version + '\nprerelease_tag=' + prereleaseTag + '\ngit_tag=v' + pkg.version + '\n');
+          NODE
+      - name: Reject published versions and existing Git tags
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_TAG: ${{ steps.release.outputs.git_tag }}
+        run: |
+          refs=$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" "refs/tags/$VERSION")
+          if [[ -n "$refs" ]]; then echo 'Version tag already exists; select a new release version.'; exit 1; fi
+          node --input-type=module <<'NODE'
+          const response = await fetch('https://registry.npmjs.org/dsh-agent-team-profile-manager/' + encodeURIComponent(process.env.VERSION), {signal: AbortSignal.timeout(30000)});
+          if (response.ok) throw new Error('Version already published; select a new release version');
+          if (response.status !== 404) throw new Error('Registry check failed: ' + response.status);
+          NODE
+      - name: Verify secondary tag authentication is configured
+        if: steps.release.outputs.prerelease_tag != ''
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: test -n "$NODE_AUTH_TOKEN" || { echo 'Configure NPM_TOKEN in the npm environment before publishing a prerelease with two dist-tags.'; exit 1; }
+      - name: Validate npm publication contents
+        run: npm publish --dry-run --access public --tag latest --registry=https://registry.npmjs.org/
+      - name: Publish package using OIDC
+        run: npm publish --provenance --access public --tag latest --registry=https://registry.npmjs.org/
+      # Trusted publishing authenticates publish; dist-tag needs a registry token.
+      - name: Point prerelease dist-tag at the same version
+        if: steps.release.outputs.prerelease_tag != ''
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
+          DIST_TAG: ${{ steps.release.outputs.prerelease_tag }}
+        run: |
+          if [[ -z "$NODE_AUTH_TOKEN" ]]; then echo "Configure the npm environment NPM_TOKEN secret to update the secondary dist-tag."; exit 1; fi
+          npm dist-tag add "dsh-agent-team-profile-manager@$VERSION" "$DIST_TAG" --registry=https://registry.npmjs.org/
+      - name: Create version tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.git_tag }}
+        run: gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$GITHUB_SHA"
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.git_tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          flags=()
+          if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease --latest=false); fi
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$RELEASE_TAG" --generate-notes "${flags[@]}"

@@ -6,7 +6,7 @@ const EXPECTED = '0.2.1-alpha.3';
 export function assertCompatibility(ctx) {
   for (const pkg of ['agent', 'subagent', 'tools', 'llm', 'session', 'experimental-agent-team', 'experimental-tool-agent-team', 'session-projection', 'tool-subagent']) {
     const actual = require('@deepseek-ai/dsh-' + pkg + '/package.json').version;
-    if (actual !== EXPECTED) throw new Error('agent-team-model-router requires DSH ' + EXPECTED + '; ' + pkg + ' is ' + actual);
+    if (actual !== EXPECTED) throw new Error('agent-team-profile-manager requires DSH ' + EXPECTED + '; ' + pkg + ' is ' + actual);
   }
   for (const [service, methods] of Object.entries({ agents: ['list', 'get'], subagents: ['startActivation'], llm: ['resolveCallConfig', 'resolveModelInfo', 'listProviders', 'listModels'], tools: ['register', 'get'], agentTeams: ['tryMembership', 'listMembers'] })) {
     for (const method of methods) if (typeof ctx[service]?.[method] !== 'function') throw new Error('Missing DSH API: ' + service + '.' + method);

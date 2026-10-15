@@ -1,4 +1,4 @@
-# dsh-agent-team-model-router
+# dsh-agent-team-profile-manager
 
 Agent Teams model routing, durable display aliases and Team-first delegation for **DSH 0.2.1-alpha.3 only**. Node 22.23+.
 
@@ -65,7 +65,7 @@ The suite does not exercise cloud credentials or install/restart the user's runn
 Stop and back up the selected profile first. Upgrade the Host and Agent Teams bundle together to **0.2.1-alpha.3**. Registry tag `alpha` contains this version; `latest` currently still points at 0.2.0-rc.2. Do not mix DSH package versions or force peer resolution.
 
 ~~~sh
-REPO="$HOME/path/to/dsh-agent-team-model-router" # replace
+REPO="$HOME/path/to/dsh-agent-team-profile-manager" # replace
 PROFILE=web # replace with your actual profile
 npm ci --ignore-scripts
 npm run build
@@ -86,15 +86,44 @@ After installing, restart the existing DSH Host and refresh its existing Web URL
 
 Plugin version and every DSH integration dependency must exactly match the target DSH release. Cordis uses the matching upstream framework range. Prepack rebuilds and runs tests, and release tests reject mismatched DSH pins. Upstream changes still require review and tests; matching version numbers alone do not ensure compatibility.
 
-Suggested public name: **DSH Team Conductor** (`dsh-team-conductor`). It describes orchestration, routing and member identity rather than just model routing. Availability is not reserved or guaranteed. The current package ID is intentionally unchanged until the owner chooses a name; a rename must also update bundle/client IDs and tests consistently before publication.
+The public package is **`dsh-agent-team-profile-manager`**. It extends the official **`@deepseek-ai/dsh-experimental-agent-team-profile`** bundle; it does not replace or rename that upstream package. Plugin, bundle entry, browser module and locale namespace use the new manager identity. Persisted projection/event keys remain unchanged so existing aliases and routing history survive the rename.
+
+For an existing local installation, stop the Host, remove the old plugin bundle/dependency and enable only the new manager entry. Do not load both identities together. Source repository: https://github.com/wads-dev/dsh-agent-team-profile-manager.
 
 ~~~sh
 npm pack --dry-run
-# Only after choosing the final name and checking npm ownership/availability:
-npm publish --tag alpha --access public
+# Authenticate and verify ownership/availability before the first publication:
+npm whoami
+npm publish --tag latest --access public
+npm dist-tag add dsh-agent-team-profile-manager@0.2.1-alpha.3 alpha
+npm dist-tag ls dsh-agent-team-profile-manager
 ~~~
 
-No npm publication is performed by this repository's tests.
+`publishConfig` defaults to public access and the `latest` tag, even though the version contains an alpha suffix. The second command also points `alpha` at the same version: npm publish accepts only one tag at a time. On each release, use the exact new version when updating `alpha`. No npm publication or registry tag mutation is performed by this repository's tests.
+
+After publication, install using:
+
+~~~sh
+PROFILE=web # replace with your actual profile
+dsh plugin --profile "$PROFILE" add @deepseek-ai/dsh-experimental-agent-team-profile@0.2.1-alpha.3
+dsh plugin --profile "$PROFILE" add dsh-agent-team-profile-manager@0.2.1-alpha.3
+~~~
+
+## GitHub Actions CI and publication
+
+The workflows follow the Live Voice repository pattern, adapted to this single-package npm repository:
+
+- [CI](.github/workflows/ci.yml): every push and PR, Ubuntu, Node 24, cached npm ci, build, tests and package inspection.
+- [Publish to npm](.github/workflows/publish.yml): manual workflow_dispatch on main only, serialized releases, npm environment, OIDC/provenance, metadata/version checks, duplicate npm/Git tag refusal, dry-run, publication, secondary dist-tag, Git tag and GitHub Release.
+
+Before the first automated release:
+
+1. Create the GitHub environment **npm** in **wads-dev/dsh-agent-team-profile-manager**, preferably with main-only deployment and required reviewers.
+2. Configure npm Trusted Publisher: GitHub Actions, owner **wads-dev**, repository **dsh-agent-team-profile-manager**, workflow **publish.yml**, environment **npm**. A first manual publication may be required to create the package before configuring its trusted publisher.
+3. Add a scoped, least-privilege granular **NPM_TOKEN** secret to the GitHub **npm** environment for the secondary dist-tag operation. OIDC handles npm publish, but does not authenticate npm dist-tag; the workflow checks that this secret exists before publication. Respect npm token expiry and the account’s 2FA policy.
+4. Run **Publish to npm** from main. Version **0.2.1-alpha.3** publishes to latest and then receives alpha too. GitHub Release remains marked prerelease because its version is prerelease; that is independent of npm latest.
+
+Publication and secondary tag updates are not atomic. If publication succeeds but the tag update fails, repair the dist-tag manually; do not republish the same immutable version. Workflows have not been executed on GitHub by this local setup.
 
 ## Attribution
 

@@ -75,10 +75,10 @@ export class ModelRouter {
       // If flush fails the route is still committed; never falsely report a rollback.
       try { await this.ctx.sessions.flush(agent.session); }
       catch (error) {
-        this.ctx.logger.warn('[agent-team-model-router] session=' + agent.id + ' route committed in memory, persistence flush failed');
+        this.ctx.logger.warn('[agent-team-profile-manager] session=' + agent.id + ' route committed in memory, persistence flush failed');
         throw new Error('Route committed in memory but durability checkpoint failed; inspect get_current_model before retrying', { cause: error });
       }
-      this.ctx.logger.info('[agent-team-model-router] teammate=' + membership.name + ' session=' + agent.id + ' from=' + current.provider + '/' + current.model + ' to=' + route.provider + '/' + route.model + ' effective=next-model-invocation');
+      this.ctx.logger.info('[agent-team-profile-manager] teammate=' + membership.name + ' session=' + agent.id + ' from=' + current.provider + '/' + current.model + ' to=' + route.provider + '/' + route.model + ' effective=next-model-invocation');
       return { changed: true, ...this.info(agent), effective: 'next-model-invocation', message: 'The current inference is unchanged. The selected route is used at the next prompt assembly/model invocation (possibly the next step of this DSH turn).' };
     });
     const tail = operation.catch(() => undefined); this.locks.set(agent.id, tail);

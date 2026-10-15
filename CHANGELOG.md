@@ -2,6 +2,9 @@
 
 ## 0.2.1-alpha.3
 
+- Publish identity: dsh-agent-team-profile-manager; align Cordis bundle, Host plugin, browser module, locale and diagnostics. Preserve persisted event/projection keys.
+- Move repository metadata to wads-dev/dsh-agent-team-profile-manager; default npm publication to public access with the latest tag and document the matching alpha dist-tag.
+
 - Pin plugin and DSH integration packages to alpha.3.
 - Replace removed startContinuable interception with startActivation.
 - Deduplicate both team:policy and team:identity registrations.
