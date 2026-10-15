@@ -1,11 +1,12 @@
 import { displayNamesProjection, normalizeDisplayName } from './display-names/state.js';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import * as TeamTools from '@deepseek-ai/dsh-experimental-tool-agent-team';
-import { assertCompatibility, installDecorators } from './compatibility/dsh-0.2.0-rc.2.js';
+import { assertCompatibility, installDecorators } from './compatibility/dsh-0.2.1-alpha.3.js';
 import { routingProjection } from './routing/state.js';
 import { ModelRouter } from './routing/model-router.js';
 import { infoSchema, switchSchema, listSchema, jsonOutput } from './tools/schemas.js';
 import { hasDelegationModelRequest } from './vendor/model-selection.js';
+import { installDelegationPolicy } from './delegation-policy.js';
 export const name = 'agent-team-model-router';
 export const inject = ['agents', 'sessions', 'agentTeams', 'subagents', 'tools', 'llm', 'systemPrompt', 'sessionProjections'];
 const routeFields = {
@@ -28,7 +29,7 @@ export async function apply(ctx, config = {}) {
       ...definition,
       parameters: { ...definition.parameters, properties: { ...definition.parameters.properties,
         provider: { type: 'string' }, model: { type: 'string' }, reasoning_effort: { type: 'string' } } },
-      description: definition.description + ' Optional provider/model/reasoning_effort select an authorized LLM route; omit to preserve normal inheritance.',
+      description: definition.description + ' Use this instead of subagent/subagent_fork. Ask the user which model to use before delegation (one for all or per responsibility), then reuse that choice. Reuse suitable existing members via send_message. Optional provider/model/reasoning_effort select an authorized LLM route; omit only when the user chose inheritance.',
       async execute(args, exec) {
         if (!hasDelegationModelRequest(args)) return definition.execute(args, exec);
         if (!exec.agent) throw new Error('spawn_teammate requires a calling Agent');
@@ -42,7 +43,7 @@ export async function apply(ctx, config = {}) {
     const membership = ctx.agentTeams.tryMembership(agent);
     if (!membership || installed.has(agent)) return;
     router.install(agent);
-    const disposers = [];
+    const disposers = [installDelegationPolicy(agent, config)];
     const register = (toolName, description, parameters, execute) => disposers.push(agent.ctx.tools.register(defineTool({ name: toolName, description, parameters, output: jsonOutput(toolName === 'list_models' ? listSchema : toolName === 'get_current_model' ? infoSchema : switchSchema), execute })));
     disposers.push(agent.ctx.tools.register(defineTool({
       name: 'set_teammate_display_name',
@@ -138,5 +139,5 @@ export async function apply(ctx, config = {}) {
   for (const agent of ctx.agents.list()) install(agent);
   // Mount upstream tools AFTER decoration, avoiding replacement of live registry definitions.
   await ctx.plugin(TeamTools, { freshProvider: config.freshProvider ?? 'spawn', forkProvider: config.forkProvider ?? 'fork' });
-  ctx.logger.info('[agent-team-model-router] loaded for DSH 0.2.0-rc.2');
+  ctx.logger.info('[agent-team-model-router] loaded for DSH 0.2.1-alpha.3');
 }

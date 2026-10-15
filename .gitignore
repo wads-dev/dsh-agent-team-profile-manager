@@ -1,3 +1,6 @@
 node_modules/
 lib/
 *.tgz
+.npm-cache/
+node_modules.alpha2.backup/
+package-lock.alpha2.backup.json

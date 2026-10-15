@@ -5,8 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
 import AgentLoop from '@deepseek-ai/dsh-agent-loop';
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory';
+import FsLocal from '@deepseek-ai/dsh-fs-local';
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit';
-import Persistence from '@deepseek-ai/dsh-session-persistence-jsonl';
+import * as Persistence from '@deepseek-ai/dsh-session-persistence-jsonl';
 import Subagents from '@deepseek-ai/dsh-subagent';
 import * as Spawn from '@deepseek-ai/dsh-subagent-spawn-in-process';
 import * as Fork from '@deepseek-ai/dsh-subagent-fork-in-process';
@@ -16,9 +18,11 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { MockAdapter, textResponse, toolCallResponse } from './adapter.mjs';
 import { TestSessionQuery } from './query.mjs';
 import * as Router from '../lib/index.js';
+import { defineTool } from '@deepseek-ai/dsh-tools';
+import { jsonOutput } from '../lib/tools/schemas.js';
 import * as TeamTools from '@deepseek-ai/dsh-experimental-tool-agent-team';
 import Loader from '@deepseek-ai/cordis-plugin-loader';
-import { assertCompatibility } from '../lib/compatibility/dsh-0.2.0-rc.2.js';
+import { assertCompatibility } from '../lib/compatibility/dsh-0.2.1-alpha.3.js';
 const signal = new AbortController().signal;
 async function setup(t, script, options = {}) {
   const ctx = new Context();
@@ -28,6 +32,8 @@ async function setup(t, script, options = {}) {
   await ctx.plugin(Persistence, { root: storageRoot });
   await ctx.plugin(TestSessionQuery);
   await ctx.plugin(AgentLoop, { agents: [] });
+  await ctx.plugin(FsLocal);
+  await ctx.plugin(WorkingDirectory, {defaultDirectory:storageRoot});
   await ctx.plugin(Subagents);
   await ctx.plugin(Spawn, { providerName: 'spawn' });
   await ctx.plugin(Fork, { providerName: 'fork' });
@@ -54,7 +60,7 @@ async function setup(t, script, options = {}) {
     routerFiber=ctx.loader.resolve(routerId).fiber;
     assert.equal(routerFiber.state,2);
     for(const entry of ctx.loader.entries())assert.equal(entry.fiber?.state,2);
-  } else if (!options.noRouter) routerFiber = await ctx.plugin(Router);
+  } else if (!options.noRouter) routerFiber = await ctx.plugin(Router, options.routerConfig ?? {});
   const lead = options.resume ? (await ctx.agents.resume({resumeSessionId:SessionId('lead'),agentOptions:{provider:'one',model:'A'}})).agent : await ctx.agentLoop.create(SessionId('lead'), {provider:'one',model:'A'});
   return {ctx,lead,adapter,secondAdapter,storageRoot,routerFiber};
 }
@@ -321,4 +327,31 @@ test('invalid selection is rejected before creating a roster member', async t =>
  const {ctx,lead,adapter}=await setup(t,[]);
  await assert.rejects(spawn(ctx,lead,{provider:'two',model:'nonexistent'}),/not allowed/);
  assert.equal(ctx.agentTeams.listMembers(lead).length,1);assert.equal(adapter.requests.length,0);
+});
+
+test('Team policy hides late global subagent tools, guards scoped bypass and restores on unload', async t => {
+ const {ctx,lead,routerFiber,adapter}=await setup(t,[textResponse('team works')]);
+ let executed=0;
+ const tool=name=>defineTool({name,description:'test delegation',parameters:{},output:jsonOutput({type:'string'}),execute:async()=>{executed++;return 'not allowed';}});
+ const releases=['subagent','subagent_fork','list_subagent_models'].map(name=>ctx.tools.register(tool(name)));
+ for(const name of ['subagent','subagent_fork','list_subagent_models'])assert.equal(ctx.tools.get(name,lead),undefined);
+ const scoped=lead.ctx.tools.register(tool('subagent'));
+ const blocked=await ctx.tools.execute({callId:'blocked',name:'subagent',arguments:{},agent:lead,signal});
+ assert.equal(executed,0);assert.match(JSON.stringify(blocked),/disabled by the Team router/);
+ const started=await spawn(ctx,lead);await until(()=>adapter.requests.length===1&&!ctx.agents.get(started.member.id));
+ const prompt=JSON.stringify(adapter.requests[0]);
+ assert.match(prompt,/ask the user which provider.model/i);
+ assert.match(prompt,/switch_teammate_model/);
+ assert.match(prompt,/reuse an appropriate existing member/i);
+ scoped();await routerFiber.dispose();
+ assert.ok(ctx.tools.get('subagent',lead));
+ for(const release of releases)release();
+});
+
+test('operator can opt out of subagent blocking without losing model-choice guidance', async t => {
+ const {ctx,lead}=await setup(t,[],{routerConfig:{disableSubagents:false}});
+ let executed=false;
+ const release=ctx.tools.register(defineTool({name:'subagent',description:'test',parameters:{},output:jsonOutput({type:'string'}),execute:async()=>{executed=true;return 'ok';}}));
+ await ctx.tools.execute({callId:'allowed',name:'subagent',arguments:{},agent:lead,signal});
+ assert.equal(executed,true);release();
 });

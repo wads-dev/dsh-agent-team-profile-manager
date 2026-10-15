@@ -1,31 +1,53 @@
 # dsh-agent-team-model-router
 
-> **Experimental / known lifecycle issue.** Live tests confirmed explicit spawning on Luna medium, Luna low and Sol low, and a teammate switching Luna → Sol with the same session ID. However, a subsequent `list_agents` call failed with `cannot get required service "agentTeams" in inactive context`. Root cause is not established. This release is not production-stable; use a backed-up test profile. UI display-name editing is implemented in the development version; installed profiles need a rebuilt client asset and reload to use it.
+Agent Teams model routing, durable display aliases and Team-first delegation for **DSH 0.2.1-alpha.3 only**. Node 22.23+.
 
-Local Cordis/DSH plugin for **DSH 0.2.0-rc.2 only**. Extends upstream Agent Teams with explicit provider/model selection and next-inference routing. It does not fork the Team service, edit installed DSH files, edit session files, or recreate teammates to switch models.
+## What this release fixes
 
-## Web boot fix in 0.1.3
+- Migrates the Team routing bridge from removed `startContinuable` to `startActivation`, retaining upstream provisioning, authority, cancellation and persistence.
+- Restores explicit provider/model/reasoning-effort selection for fresh and fork teammates and runtime model changes without replacing their sessions.
+- Shares both upstream Team policy and the new Team identity context when duplicate tool compositions are enabled, preventing duplicate-registration failures.
+- Builds the alias-aware Web panel from the matching alpha.3 upstream browser bundle, not the old RC panel. Display aliases preserve stable message/task targets.
 
-0.1.2 reused the original panel locale namespace `agent-team`, so enabling both browser entries could fail the entire Web boot. 0.1.3 isolates the router locale namespace as `agent-team-model-router`. The failure was reproduced with the plugin ACTIVE at the existing Web URL; rebuilding the linked client and refreshing restored the GUI with the corrected router asset loaded and no console errors. A regression now rejects duplicate original locale registration. This fixes that specific browser boot failure; the separate previously reported Host inactive-context issue is not claimed resolved.
+## Team-first delegation (default)
 
-## Safety fix in 0.1.1
+The plugin hides global `subagent`, `subagent_fork` and `list_subagent_models` tools in Team member scopes. A scoped dispatch guard also rejects those names if a scoped registration bypasses visibility restrictions. Late registration and plugin disposal are handled. This is a tool-level policy, not a sandbox against arbitrary host code or other plugins.
 
-**Do not install 0.1.0.** It could block Session creation when the user's last profile patch re-enabled tool-agent-team. That loaded the original tools beside the router's child tools and registered team:policy twice. This was reproduced from the reported stack trace and fixed with shared, reference-counted per-Agent policy/tool registrations. The safe hot-install guard rejects a conflicting existing live composition before route tools are installed. Tests now include the actual Cordis Loader and component toggles, not only direct plugin mounting.
+**Do not disable the subagent runtime or spawn/fork providers.** Agent Teams uses that shared runtime internally. Only the standard model-facing delegation tools are blocked.
 
-If you uninstalled after this failure, keep the profile recovered until updating/building this repository. Back up and stop your profile before relinking. Check your final user patch for tool-agent-team with disabled: false: setting it true is recommended while using the router, although 0.1.1 now tests that duplicate-enabled startup does not block sessions. This repository does not automatically edit that user override.
+A dedicated system-prompt section and spawn-tool description instruct the model to:
 
-## Status and compatibility
+1. Obtain human authorization to delegate; treat a request for sub-agents as Team-based delegation.
+2. Ask which provider/model to use before delegation: one for all members, a per-responsibility mapping, or explicit inheritance. Reuse the choice for its stated scope.
+3. Discover exact allowed routes via `list_models`; never guess model IDs or consent.
+4. Reuse suitable members with `list_agents` and `send_message` instead of creating one per task.
+5. Use Team runtime switch tools rather than claiming only sub-agents support model selection.
 
-Tested against exact 0.2.0-rc.2 AgentLoop, Agent Teams, SubagentRuntime, LLM runtime and JSONL persistence packages using keyless scripted adapters. Tests assert the actual adapter stream request's provider/model/sessionId and history. Real cloud-provider credentials and the user's Web profile are not modified or exercised by this suite. No claim of compatibility with another DSH version.
+**Model-choice confirmation is prompt guidance, not mechanically verified consent.** The plugin cannot reliably infer from arbitrary conversation text that a human chose a model. It does not add a misleading “confirmed” boolean the model could fill itself. Host model authorization remains enforced by code.
 
-Requires Node 22.23+ and the experimental Agent Teams bundle, its normal spawn/fork providers, Session persistence/projections, Tools/SystemPrompt/LLM services, and the Host subagent-model-selection setting. The router bundle must follow the Agent Teams bundle.
+Operator opt-out in the router's existing config: `disableSubagents: false`. Default is true; the model-choice guidance remains enabled in either mode.
 
-## Local development
+## Tools
 
-From this repository:
+| Tool | Scope / behavior |
+| --- | --- |
+| spawn_teammate | Lead; upstream tool plus optional provider/model/reasoning_effort. Provider and model together; omission preserves inheritance. |
+| list_models | Team members; exact authorized routes and current adapter metadata. |
+| get_current_model | Actual last-used route, pending and next route, session ID. |
+| switch_model | Teammate; changes its own route at the next model invocation. |
+| switch_teammate_model | Lead; changes an exact live teammate's next route. Cold teammates must first be loaded via send_message. |
+| set_teammate_display_name | Lead; edit/reset visual names, including cold members. Stable targets do not change. |
+| compact_teammate | Lead; native compaction of a loaded idle teammate; no wake/recreation. Summary may lose detail. |
 
+A running inference is never switched midway. A selected model may take effect on the next step of the same turn. The Lead's own route is not changed by these teammate tools.
 
-Build/test commands:
+## Host authorization
+
+Enable **subagent-model-selection** in the DSH Host settings and authorize exact provider/model routes. The name of that native setting remains unchanged even when standard subagent tools are blocked. Sessions without a saved policy capture the Host allowlist; children inherit it. Existing durable policies are preserved, not silently broadened.
+
+A missing provider, disallowed route, invalid effort or unavailable exact model fails before committing a route or creating a teammate. There is no hardcoded model catalog.
+
+## Build and validation
 
 ~~~sh
 npm ci --ignore-scripts
@@ -34,156 +56,46 @@ npm test
 npm pack --dry-run
 ~~~
 
-The suite currently contains 29 tests (including display-name host persistence and browser DOM coverage), with the original 21 routing/composition integration tests, including actual Cordis Loader duplicate-component startup and safe rejection of conflicting hot-install; see docs/VERIFICATION.md.
+31 tests cover actual alpha.3 AgentLoop requests through keyless adapters, fresh/fork spawning, repeated switches and same-session history, JSONL restart/resume, invalid/cancelled selections, concurrent routing, real Cordis Loader duplicate composition/toggles, alias persistence/browser DOM navigation, and delegation visibility/dispatch/cleanup/opt-out. Compaction uses a stub backend; real summarization is not tested.
 
-Source is ordinary ESM JavaScript; build copies it into lib. All DSH integration dependencies are pinned to 0.2.0-rc.2. No compiled core override is shipped.
+The suite does not exercise cloud credentials or install/restart the user's running Web profile. A successful local suite is not a claim of live-profile verification.
 
-## Install into a profile (manual, not performed automatically)
+## Install / update a profile
 
-These commands CHANGE the chosen profile's dependencies and bundle configuration. Back up the profile first. Stop that profile's running DSH process before installation; do not hot-install over an already mounted tool-agent-team. Use your own profile name, not a guessed default.
+Stop and back up the selected profile first. Upgrade the Host and Agent Teams bundle together to **0.2.1-alpha.3**. Registry tag `alpha` contains this version; `latest` currently still points at 0.2.0-rc.2. Do not mix DSH package versions or force peer resolution.
 
 ~~~sh
-REPO="$HOME/path/to/dsh-agent-team-model-router"  # replace with your clone path
-PROFILE=web  # replace with your actual profile
-cd "$REPO"
+REPO="$HOME/path/to/dsh-agent-team-model-router" # replace
+PROFILE=web # replace with your actual profile
 npm ci --ignore-scripts
 npm run build
 npm test
-
-dsh --version  # must print 0.2.0-rc.2
-# Skip this if the bundle is already installed/enabled:
-dsh plugin --profile "$PROFILE" add @deepseek-ai/dsh-experimental-agent-team-profile@0.2.0-rc.2
-# Profile-local link to this built package:
+dsh --version # must be 0.2.1-alpha.3
+# Install/update the upstream bundle before this plugin:
+dsh plugin --profile "$PROFILE" add @deepseek-ai/dsh-experimental-agent-team-profile@0.2.1-alpha.3
 dsh plugin --profile "$PROFILE" add "link:$REPO"
-# Inspect the composed tree without booting:
 dsh --profile "$PROFILE" --dump-config
-# Restart the existing profile, not a replacement Vite server:
 dsh --profile "$PROFILE"
 ~~~
 
-The package declares a DSH bundle patch. Installing it via dsh plugin activates that patch: it disables the original tool-agent-team row and inserts agent-team-model-router. The router mounts the SAME upstream tool plugin as its child after installing decorations; all other Team tools/transactions remain upstream. Check the dump for exactly one active Team tool composition, plus the router. Do not add a second manual router entry. Keep the Agent Teams bundle enabled and ordered before this bundle in the profile's dsh.profile.bundles array.
+The bundle patch disables the standalone tool-agent-team row and mounts the same upstream tools below the router decorators. Keep Agent Teams enabled and ordered before this plugin. Do not add a duplicate manual router row. Hot-install over existing live Team tools is deliberately rejected; restart the profile. If link resolution does not share Host packages correctly, install an npm-packed tarball instead.
 
-If profile-local linking does not share the expected runtime packages in your package-manager setup, use npm pack and install the resulting tgz via dsh plugin --profile "$PROFILE" add /absolute/path/to/package.tgz. The runtime deliberately rejects mismatched package versions.
+After installing, restart the existing DSH Host and refresh its existing Web URL to load rebuilt client assets. This repository does not automatically modify your profile, global DSH installation, or running server.
 
-## Enable model selection
+## Release policy and naming
 
-Use the DSH settings UI: enable **subagent-model-selection** and authorize exact provider/model routes. Use identifiers from your profile's registered providers (including account-backed route IDs where applicable), not generic vendor names. The same Host setting governs subagent delegation and this plugin; no new hardcoded model catalog.
+Plugin version and every DSH integration dependency must exactly match the target DSH release. Cordis uses the matching upstream framework range. Prepack rebuilds and runs tests, and release tests reject mismatched DSH pins. Upstream changes still require review and tests; matching version numbers alone do not ensure compatibility.
 
-For deployments configuring that setting through a profile patch, the existing entry is subagent-model-selection-settings, with name @deepseek-ai/dsh-tool-subagent/model-selection-settings and config.enabled/config.allowedModels. Patch the existing entry rather than mounting a duplicate service:
+Suggested public name: **DSH Team Conductor** (`dsh-team-conductor`). It describes orchestration, routing and member identity rather than just model routing. Availability is not reserved or guaranteed. The current package ID is intentionally unchanged until the owner chooses a name; a rename must also update bundle/client IDs and tests consistently before publication.
 
-~~~yaml
-- id: subagent-model-selection-settings
-  config:
-    enabled: true
-    allowedModels:
-      - provider: YOUR_REGISTERED_PROVIDER_ID
-        model: YOUR_EXACT_MODEL_ID
+~~~sh
+npm pack --dry-run
+# Only after choosing the final name and checking npm ownership/availability:
+npm publish --tag alpha --access public
 ~~~
 
-Verify the entry ID in your dump before applying this example. The deployment base can be overridden by the stored user setting. Routes are captured in native subagent/model-selection-policy events for both new and existing top-level Sessions lacking a policy; children inherit the captured allowlist. No per-session opt-in or age restriction exists. Existing durable policies are preserved.
+No npm publication is performed by this repository's tests.
 
-## Tools
+## Attribution
 
-| Tool | Who | Behavior |
-| --- | --- | --- |
-| spawn_teammate | Lead | Upstream tool plus optional provider, model, reasoning_effort. Provider/model must be supplied together. Omission is passed unchanged to upstream. |
-| list_models | Team members | Returns all exact allowed routes, with runtime adapter metadata and availability; optional provider/model filter. |
-| get_current_model | Team members | Actual last-used request header, pending selection and next route, plus session ID. |
-| set_teammate_display_name | Lead | Edit/reset UI label without changing stable targets, including cold members. |
-| switch_model | Teammate | Schedules explicit route for its next prompt assembly/model invocation. |
-| switch_teammate_model | Lead | Same switch for an exact live teammate in that Team; does not wake/recreate it. |
-
-Existing list_subagent_models remains unchanged when another delegation surface provides it. list_models reuses DSH's registry and exact-model resolver, but returns a structured complete allowlist including unadvertised authorized IDs, availability and capabilities. The upstream helper is not publicly exported in the released rc.2, so route-merging/policy validation code is vendored from #8324 with MIT attribution, not imported from invented subpaths.
-
-## Example workflow
-
-First call list_models({}) and use returned IDs. The symbolic values below are placeholders, not valid hardcoded routes:
-
-~~~ts
-// Lead
-list_models({})
-spawn_teammate({
-  name: "backend",
-  description: "Implement backend changes",
-  prompt: "Implement and test the backend. Discover routes before choosing one.",
-  provider: PROVIDER_A,
-  model: MODEL_A,
-})
-
-// backend (same session and identity throughout)
-get_current_model({})
-switch_model({ provider: PROVIDER_B, model: MODEL_B })
-// Next model invocation uses B. Work, then switch back:
-switch_model({ provider: PROVIDER_A, model: MODEL_A })
-
-// Lead, while backend is live:
-switch_teammate_model({ teammate: "backend", provider: PROVIDER_B, model: MODEL_B })
-~~~
-
-## Editing display names
-
-~~~ts
-set_teammate_display_name({ target: "backend", display_name: "Backend — Revisão Ágil" })
-set_teammate_display_name({ target: "lead", display_name: "ADMIN" })
-// Reset to stable target:
-set_teammate_display_name({ target: "backend", display_name: null })
-~~~
-
-Lead-only. Targets come from list_agents, never from the visual alias. Cold members can be renamed without waking them. Session IDs, task ownership, mailbox and stable names are unchanged. Names allow case/spaces/accents; empty/control/bidi-override text is rejected. Display aliases persist in successful native tool receipts and are exposed by the agentTeamDisplayNames projection; absence of the plugin does not make Session logs unreadable.
-
-Rebuild with npm run build, then reload the plugin/profile and refresh the existing Web URL. No automatic HMR update is promised. The client entry must be recognized from the updated package manifest. Do not disable the original Team Panel; the alias-aware panel shadows its registered slot at a different priority. UI rendering is tested with React DOM/jsdom; the user's live Web profile still needs verification after refresh. GitHub publication is experimental; live GUI validation after profile restart remains pending.
-
-## Existing Team Sessions
-
-Session age is not a restriction. The plugin has no per-session opt-in tool, confirmation gate, or configuration switch to block legacy Sessions. When Host subagent-model-selection is enabled, existing root Sessions lacking a policy capture the Host route allowlist automatically on loading or routing access. Teammates inherit their parent's policy. Existing durable route policies remain authoritative; adapter validation and Host route authorization are not bypassed.
-
-Restart the DSH Host after rebuilding/updating the plugin, then resume the SAME existing Session. No new Session, history rewrite or manual log edit is required. A running inference is unchanged; switching affects the next model invocation. Cold teammates still need send_message before switch_teammate_model. This does not raise the Team member limit or guarantee all historic tokens fit a model's context window.
-
-Verified in keyless runtime tests: old persisted Team created with Host selection disabled, restart with Host enabled, same teammate ID, old text retained in actual switched inference. User's large Session has not been directly modified or certified.
-
-## Compact an idle teammate (0.2.0)
-
-~~~ts
-compact_teammate({ target: "backend" })
-~~~
-
-Lead-only, stable teammate target. Delegates to the Host's native compaction.compactNow, the same seam used by /compact. Requires a configured compaction backend and a LOADED IDLE teammate. The native backend owns idle maintenance, balanced history selection, summary generation, transaction locking and persistence. The tool returns compacted, summary_seq, history_items and shadowed_tokens, or a no-op when no safe useful history exists. Backend errors propagate; after a persistence/commit error inspect the Session before retrying.
-
-Does not interrupt an active inference, wake a cold member, recreate a Session, change model or force a history range. Summary generation can use LLM tokens and is lossy: older active context is replaced with a summary, not guaranteed verbatim retention. There is no self-compaction scheduling in this version. Idle in list_agents is not sufficient: completed continuable members may be unloaded and will be rejected. We do not promise compaction immediately after every task; cold-member maintenance requires a separate lifecycle feature.
-
-Tests cover tool/schema registration, Lead authorization, exact member/signal delegation, unavailable backend, no-op/success reporting, cancellation, the real Agent runMaintenance busy guard and cold-member refusal. The compaction service is stubbed for result tests: full native summary/persistence and live provider execution are not verified here. No live user teammate was compacted.
-
-## Exact switching semantics
-
-A running inference is never replaced or aborted. installModelSelection snapshots the route BEFORE prompt assembly and uses that same snapshot for request routing. A switch after that snapshot applies to a later invocation. In DSH vocabulary, multiple model invocations are **steps within one turn**: a switch tool invoked at step N can affect step N+1 within the same turn; it does not wait for turn/end. This is the requested next-model-invocation behavior, not a whole-turn cancellation/restart.
-
-The successful response includes current, pending, next, changed, effective: next-model-invocation. Current comes from the actual latest request/header (creation options only before the first inference). Reasoning effort is the resolved request value. A concurrent switch cannot split prompt identity from provider dispatch.
-
-Selection writes the native model/selection event through Session.append, then updates the live reference and awaits sessions.flush. Cold resume restores child-owned selections before inference, despite the original descriptor retaining creation-time routing. Session/history/name/tasks/ownership/mailbox are untouched. A flush failure reports that the route is committed in memory but durability failed; it does not claim rollback. Inspect current state before retrying.
-
-No-op: identical effective/pending route produces no selection event. Duplicate switches serialize per session. No hidden automatic routing or arbitrary cooldown. Logs identify teammate/session/from/to, never credential objects.
-
-## Architecture and limitations
-
-- compatibility/dsh-0.2.0-rc.2.js: version/API guards and Cordis internal/get decoration of caller-traced services. A scoped AsyncLocalStorage value carries validated spawn options across the original Team transaction into startContinuable. No prototype mutation/core patch/private Activation access.
-- routing: plugin-owned projection reads native events; live routing uses the public installModelSelection waterfall.
-- tools: canonical structured output schemas.
-- vendor: MIT route helper studied from the #8324 implementation; see NOTICE and docs/INVESTIGATION.md.
-
-Limitations:
-
-1. Lead switching targets LIVE teammates only. Cold/unloaded targets return a useful error; resume with send_message first. No offline persisted-file edits or unsafe residency borrowing.
-2. Restart with the bundle patch. Version 0.1.1 reference-counts the upstream Team policy/tool registrations per Agent scope if a later user override re-enables the original component, preventing the 0.1.0 duplicate team:policy failure. Hot-install over tools already registered in LIVE Agent scopes is refused before changing them; stop/restart first. Plugin unload/reload is not a mechanism for switching; ensure no active work before changing composition. Do not unload the router while a second Team Tools instance retains its decorated registrations; restart to change that composition.
-3. Models are validated by the adapter's exact resolver and Session allowlist. DSH catalogs are advisory; an adapter may accept IDs it does not advertise. Availability means registered/resolvable, not a guarantee of credentials/quota/network success.
-4. Existing list_agents in rc.2 reports creation-time options and uses provider for spawn/fork. It is NOT the authoritative runtime route. Use get_current_model; native modelSelection projections are updated by model/selection/request headers where the Web controller supplies them.
-5. Other plugins that override agent/request after this selection layer are not certified; do not add competing routing middleware. In-flight request retries stay on their prepared adapter.
-6. Display names only change labels in the Agent Team panel, not session titles/sidebar or stable targets. The plugin ships a version-specific isolated copy of the rc.2 panel at a higher-priority supported slot; the original panel remains available when this client entry unloads. Native tool/result or tool/ptc-dispatch receipts persist aliases. If a caller invokes the tool body outside the native execution pipeline, no receipt is written and no alias is committed.
-7. Whole profile UI boot and external provider calls are not certified by the keyless tests. No changes to the user's running GUI are made.
-
-## Verify loading
-
-Look for [agent-team-model-router] loaded for DSH 0.2.0-rc.2 in Host logs. In a NEW opted-in Agent Team Session, list_models should report your authorized routes; spawn_teammate schema should include route fields. Have a teammate call get_current_model, switch_model and get_current_model again. The next recorded request/header must use the new route. Run npm test for keyless inference/persistence regression coverage before linking updates.
-
-## Future DSH versions
-
-Fail closed until the compatibility layer is reviewed against the exact new source and integration tests are run. Do not loosen the version guard blindly. Prefer upstream public route pass-through/shared discovery exports when they actually ship, then remove the rc.2 decoration/vendor layer. Native descriptor schemas and lifecycle ownership must remain upstream-controlled.
+MIT. See [NOTICE](NOTICE) and [LICENSE](LICENSE). Historical incident notes under docs describe earlier RC releases and are not current compatibility guarantees.
