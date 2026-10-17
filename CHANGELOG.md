@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1-rc.2
+
+- Declare exact compatibility with DSH `0.2.1-rc.2`; align plugin version, DSH peers/dev dependencies, and lockfile.
+- Use the matching stable Cordis `~4.0.5` and Loader `~1.0.6` ranges.
+- Add an explicit rc.2 runtime compatibility guard and build the alias-aware panel from the rc.2 upstream bundle.
+- Update release checks, installation guidance and prerelease dist-tag instructions for rc.2.
+
 ## 0.2.1-alpha.3
 
 - Publish identity: dsh-agent-team-profile-manager; align Cordis bundle, Host plugin, browser module, locale and diagnostics. Preserve persisted event/projection keys.

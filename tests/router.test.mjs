@@ -22,7 +22,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools';
 import { jsonOutput } from '../lib/tools/schemas.js';
 import * as TeamTools from '@deepseek-ai/dsh-experimental-tool-agent-team';
 import Loader from '@deepseek-ai/cordis-plugin-loader';
-import { assertCompatibility } from '../lib/compatibility/dsh-0.2.1-alpha.3.js';
+import { assertCompatibility } from '../lib/compatibility/dsh-0.2.1-rc.2.js';
 const signal = new AbortController().signal;
 async function setup(t, script, options = {}) {
   const ctx = new Context();

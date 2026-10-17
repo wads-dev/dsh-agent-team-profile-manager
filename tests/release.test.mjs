@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-test('release declares actual browser entry and exact alpha.3 host integration peers',async()=>{
+test('release declares actual browser entry and exact rc.2 host integration peers',async()=>{
  const pkg=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
  assert.equal(pkg.exports['./client'],'./lib/client.js');assert.equal(pkg.dsh.client.platform,'web');
  const browser=await readFile(new URL('../lib/client.js',import.meta.url),'utf8');
@@ -16,9 +16,16 @@ test('release declares actual browser entry and exact alpha.3 host integration p
  assert.ok(patch.includes('name: '+pkg.name));
  const host=await import('../lib/index.js');
  assert.equal(host.name,'agent-team-profile-manager');
- assert.equal(pkg.version,'0.2.1-alpha.3');
+ assert.equal(pkg.version,'0.2.1-rc.2');
  for(const section of ['peerDependencies','devDependencies'])for(const [name,version] of Object.entries(pkg[section]))if(name.startsWith('@deepseek-ai/dsh-'))assert.equal(version,pkg.version);
- assert.equal(pkg.peerDependencies['@deepseek-ai/cordis'],'~4.0.5-alpha.2');
+ assert.equal(pkg.peerDependencies['@deepseek-ai/cordis'],'~4.0.5');
+ assert.equal(pkg.devDependencies['@deepseek-ai/cordis-plugin-loader'],'~1.0.6');
+ const lock=JSON.parse(await readFile(new URL('../package-lock.json',import.meta.url),'utf8'));
+ assert.equal(lock.version,pkg.version);
+ assert.equal(lock.packages[''].version,pkg.version);
+ for(const [path,entry] of Object.entries(lock.packages))if(path.split('/').at(-1).startsWith('dsh-'))assert.equal(entry.version,pkg.version,path);
+ const compatibility=await readFile(new URL('../lib/compatibility/dsh-0.2.1-rc.2.js',import.meta.url),'utf8');
+ assert.ok(compatibility.includes("const EXPECTED = '"+pkg.version+"';"));
  assert.ok(pkg.scripts.prepack.includes('npm test'));
  const upstream=JSON.parse(await readFile(new URL('../node_modules/@deepseek-ai/dsh-experimental-client-ui-agent-team/package.json',import.meta.url),'utf8'));
  assert.deepEqual(pkg.dsh.client,upstream.dsh.client);

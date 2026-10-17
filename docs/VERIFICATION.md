@@ -1,11 +1,11 @@
-# Verification — DSH 0.2.1-alpha.3
+# Verification — DSH 0.2.1-rc.2
 
-Verified 2026-10-14 with Node v22.23.2 and matching published alpha.3 DSH packages. Cordis 4.0.5-alpha.2, Loader 1.0.6-alpha.2.
+Verified 2026-10-17 with Node v22.23.2 and matching published rc.2 DSH packages. Cordis 4.0.5, Loader 1.0.6.
 
 ## Passed
 
 - Clean npm ci --ignore-scripts using the committed lockfile.
-- npm run build: Host ESM and matching alpha.3 alias-aware browser bundle.
+- npm run build: Host ESM and matching rc.2 alias-aware browser bundle.
 - npm test: 31 passed, zero failed/skipped.
 - npm pack --dry-run: prepack rebuild and all 31 tests passed again; expected Host/client entry points, bundle patch and documentation included.
 - npm ls --depth=0: no invalid or missing direct dependencies.
@@ -17,12 +17,16 @@ Actual released AgentLoop, Team service/tools, SubagentRuntime, spawn/fork provi
 
 Tests cover fresh/fork explicit routes and inheritance; repeated same-session switches; cold resume/full runtime restart; authorization and adapter validation; cancelled/invalid switches; concurrent spawn isolation; assembly snapshot timing; route and alias persistence; stable member/task identity; duplicate-enabled Team composition, both Loader orders and toggles; alias-aware browser DOM navigation; global subagent tools registered after startup; scoped bypass denial; Team creation while tools are blocked; prompt model-choice/reuse guidance; operator opt-out and disposal restoring tool access.
 
-## Diagnosed compatibility changes
+## Compatibility review
+
+The rc.2 Team service still does not forward `agentOptions` from Team spawning; the async-local `startActivation` bridge remains necessary and its request contract is unchanged. Required model-selection, service decoration, projection and browser-panel contracts pass the integration suite. The runtime guard checks exact rc.2 versions (including dsh-scope), and release tests check all DSH lockfile entries as well as direct dependency pins.
+
+### Earlier alpha migration fixes retained
 
 The removed startContinuable method is replaced by startActivation. The router preserves upstream transactions and injects options only for the exact async-local Team spawning parent and reserved child ID. Upstream team:identity must be shared alongside team:policy to avoid duplicate-registration failures. Persistence now exposes a plugin namespace instead of a default export; test fixtures must mount workingDirectory for SubagentRuntime.
 
 ## Limits / deployment still required
 
-No cloud credentials, live provider billing, global installation or user profile configuration changed. No running DSH Host restart or existing-URL Web verification performed. The installed CLI inspected during this work is still alpha.2; it must be upgraded together with its profile before loading this exact alpha.3 release. The historical inactive-context live incident is not independently reproduced or claimed universally fixed.
+No cloud credentials, live provider billing, global installation or user profile configuration changed. No running DSH Host restart or existing-URL Web verification performed. The Host and profile packages must match this exact rc.2 release before loading the plugin. The historical inactive-context live incident is not independently reproduced or claimed universally fixed.
 
-Browser verification is DOM-based against the built alpha.3 panel. Native compaction is tested with a stub backend, not real summarization. Model-choice confirmation is system-prompt/tool-description guidance; code enforces route authorization and standard-subagent tool denial, not proof of human consent. Tool restrictions are not a security boundary against arbitrary host-side code or other plugins.
+Browser verification is DOM-based against the built rc.2 panel. Native compaction is tested with a stub backend, not real summarization. Model-choice confirmation is system-prompt/tool-description guidance; code enforces route authorization and standard-subagent tool denial, not proof of human consent. Tool restrictions are not a security boundary against arbitrary host-side code or other plugins.
