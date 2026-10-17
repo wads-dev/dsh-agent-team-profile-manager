@@ -4,7 +4,7 @@
   "description": "Agent Teams profile manager for DSH: runtime model routing, display names and Team-first delegation",
   "publishConfig": {
     "access": "public",
-    "tag": "latest"
+    "tag": "rc"
   },
   "repository": {
     "type": "git",

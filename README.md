@@ -94,12 +94,11 @@ For an existing local installation, stop the Host, remove the old plugin bundle/
 npm pack --dry-run
 # Authenticate and verify ownership/availability before the first publication:
 npm whoami
-npm publish --tag latest --access public
-npm dist-tag add dsh-agent-team-profile-manager@0.2.1-rc.2 rc
+npm publish --tag rc --access public
 npm dist-tag ls dsh-agent-team-profile-manager
 ~~~
 
-`publishConfig` defaults to public access and the `latest` tag, even though the version contains an RC suffix. The second command also points `rc` at the same version: npm publish accepts only one tag at a time. On each release, use the exact new version when updating the prerelease tag. No npm publication or registry tag mutation is performed by this repository's tests.
+Publication follows the Live Voice pattern: one npm dist-tag derived from the version (`rc` for `0.2.1-rc.2`, `latest` for stable versions). GitHub Actions uses OIDC trusted publishing with provenance, without an npm token or secondary dist-tag operation.
 
 After publication, install using:
 
@@ -114,16 +113,15 @@ dsh plugin --profile "$PROFILE" add dsh-agent-team-profile-manager@0.2.1-rc.2
 The workflows follow the Live Voice repository pattern, adapted to this single-package npm repository:
 
 - [CI](.github/workflows/ci.yml): every push and PR, Ubuntu, Node 24, cached npm ci, build, tests and package inspection.
-- [Publish to npm](.github/workflows/publish.yml): manual workflow_dispatch on main only, serialized releases, npm environment, OIDC/provenance, metadata/version checks, duplicate npm/Git tag refusal, dry-run, publication, secondary dist-tag, Git tag and GitHub Release.
+- [Publish to npm](.github/workflows/publish.yml): manual workflow_dispatch on main only, serialized releases, npm environment, OIDC/provenance, metadata/version checks, duplicate npm/Git tag refusal, dry-run, Git tag, OIDC publication and GitHub Release.
 
 Before the first automated release:
 
 1. Create the GitHub environment **npm** in **wads-dev/dsh-agent-team-profile-manager**, preferably with main-only deployment and required reviewers.
 2. Configure npm Trusted Publisher: GitHub Actions, owner **wads-dev**, repository **dsh-agent-team-profile-manager**, workflow **publish.yml**, environment **npm**. A first manual publication may be required to create the package before configuring its trusted publisher.
-3. Add a scoped, least-privilege granular **NPM_TOKEN** secret to the GitHub **npm** environment for the secondary dist-tag operation. OIDC handles npm publish, but does not authenticate npm dist-tag; the workflow checks that this secret exists before publication. Respect npm token expiry and the account’s 2FA policy.
-4. Run **Publish to npm** from main. Version **0.2.1-rc.2** publishes to latest and then receives rc too. GitHub Release remains marked prerelease because its version is prerelease; that is independent of npm latest.
+3. Run **Publish to npm** from main. Version **0.2.1-rc.2** publishes directly to `rc` via OIDC, without `NPM_TOKEN`. The GitHub Release is marked prerelease.
 
-Publication and secondary tag updates are not atomic. If publication succeeds but the tag update fails, repair the dist-tag manually; do not republish the same immutable version. Workflows have not been executed on GitHub by this local setup.
+Git tagging and npm publication are not atomic. If publication fails after Git tagging, inspect the run and registry before recovery; do not blindly republish an immutable version.
 
 ## Attribution
 

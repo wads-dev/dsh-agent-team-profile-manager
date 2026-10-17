@@ -10,7 +10,7 @@ test('release declares actual browser entry and exact rc.2 host integration peer
  assert.ok(!browser.includes('const NS = "agent-team";'));
  assert.equal(pkg.name,'dsh-agent-team-profile-manager');
  assert.equal(pkg.publishConfig.access,'public');
- assert.equal(pkg.publishConfig.tag,'latest');
+ assert.equal(pkg.publishConfig.tag,'rc');
  assert.equal(pkg.repository.url,'git+https://github.com/wads-dev/dsh-agent-team-profile-manager.git');
  const patch=await readFile(new URL('../cordis.patch.yml',import.meta.url),'utf8');
  assert.ok(patch.includes('name: '+pkg.name));
