@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1-rc.4
+
+- Align plugin and exact DSH integration dependencies with DSH `0.2.1-rc.4`.
+- Update the runtime compatibility guard, upstream browser bundle and release verification.
+
+
+## 0.2.1-rc.4
+
+- Align plugin and exact DSH integration dependencies with DSH `0.2.1-rc.4`.
+- Update runtime guard, upstream browser bundle and release verification.
+
 ## 0.2.1-rc.3
 
 - Support DSH `0.2.1-rc.3` with matching exact integration dependencies and runtime guard.
