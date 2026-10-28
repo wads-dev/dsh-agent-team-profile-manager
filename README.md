@@ -49,6 +49,8 @@ A missing provider, disallowed route, invalid effort or unavailable exact model 
 
 ## Build and validation
 
+Plugin release: **0.2.2-alpha.3**. Compatible Host/Agent Teams release: **0.2.2-alpha.2**.
+
 ~~~sh
 npm ci --ignore-scripts
 npm run build
@@ -62,7 +64,7 @@ The suite does not exercise cloud credentials or install/restart the user's runn
 
 ## Install / update a profile
 
-Stop and back up the selected profile first. Upgrade the Host and Agent Teams bundle together to **0.2.2-alpha.2**. Do not mix DSH package versions or force peer resolution.
+Stop and back up the selected profile first. Use Host and Agent Teams bundle **0.2.2-alpha.2** with this plugin **0.2.2-alpha.3**. Do not mix DSH package versions or force peer resolution.
 
 ~~~sh
 REPO="$HOME/path/to/dsh-agent-team-profile-manager" # replace
@@ -94,18 +96,18 @@ For an existing local installation, stop the Host, remove the old plugin bundle/
 npm pack --dry-run
 # Authenticate and verify ownership/availability before the first publication:
 npm whoami
-npm publish --tag alpha --access public
+npm publish --tag latest --access public
 npm dist-tag ls dsh-agent-team-profile-manager
 ~~~
 
-Publication follows the Live Voice pattern: one npm dist-tag derived from the version (`alpha` for `0.2.2-alpha.2`, `latest` for stable versions). GitHub Actions uses OIDC trusted publishing with provenance, without an npm token or secondary dist-tag operation.
+Every release, including prereleases, publishes to the npm `latest` dist-tag via GitHub Actions OIDC with provenance. This workflow does not create secondary dist-tags or use an npm token.
 
 After publication, install using:
 
 ~~~sh
 PROFILE=web # replace with your actual profile
 dsh plugin --profile "$PROFILE" add @deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-alpha.2
-dsh plugin --profile "$PROFILE" add dsh-agent-team-profile-manager@0.2.2-alpha.2
+dsh plugin --profile "$PROFILE" add dsh-agent-team-profile-manager@0.2.2-alpha.3
 ~~~
 
 ## GitHub Actions CI and publication
@@ -119,7 +121,7 @@ Before the first automated release:
 
 1. Create the GitHub environment **npm** in **wads-dev/dsh-agent-team-profile-manager**, preferably with main-only deployment and required reviewers.
 2. Configure npm Trusted Publisher: GitHub Actions, owner **wads-dev**, repository **dsh-agent-team-profile-manager**, workflow **publish.yml**, environment **npm**. A first manual publication may be required to create the package before configuring its trusted publisher.
-3. Run **Publish to npm** from main. Version **0.2.2-alpha.2** publishes directly to `alpha` via OIDC, without `NPM_TOKEN`. The GitHub Release is marked prerelease.
+3. Run **Publish to npm** from main. Version **0.2.2-alpha.2** publishes directly to `latest` via OIDC, without `NPM_TOKEN`. The GitHub Release is marked prerelease.
 
 Git tagging and npm publication are not atomic. If publication fails after Git tagging, inspect the run and registry before recovery; do not blindly republish an immutable version.
 

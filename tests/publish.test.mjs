@@ -5,8 +5,9 @@ import { readFile } from 'node:fs/promises';
 test('publication follows tokenless Live Voice OIDC pattern', async () => {
   const workflow = await readFile(new URL('../.github/workflows/publish.yml', import.meta.url), 'utf8');
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  const tag = pkg.version.includes('-') ? pkg.version.split('-')[1].split('.')[0] : 'latest';
+  const tag = 'latest';
   assert.equal(pkg.publishConfig.tag, tag);
+  assert.ok(workflow.includes("const tag = 'latest';"));
   assert.ok(workflow.includes('id-token: write'));
   assert.ok(workflow.includes('environment: npm'));
   assert.ok(workflow.includes('npm install --global npm@11.10.1'));
