@@ -1,13 +1,15 @@
-# Verification — DSH 0.2.1-rc.2
+# Verification — DSH 0.2.1-rc.3
 
-Verified 2026-10-17 with Node v22.23.2 and matching published rc.2 DSH packages. Cordis 4.0.5, Loader 1.0.6.
+This verification supersedes the prior rc.2 compatibility report.
+
+Verified 2026-10-28 with Node v22.23.3 and matching published rc.3 DSH packages. Cordis 4.0.5, Loader 1.0.6.
 
 ## Passed
 
 - Clean npm ci --ignore-scripts using the committed lockfile.
-- npm run build: Host ESM and matching rc.2 alias-aware browser bundle.
-- npm test: 31 passed, zero failed/skipped.
-- npm pack --dry-run: prepack rebuild and all 31 tests passed again; expected Host/client entry points, bundle patch and documentation included.
+- npm run build: Host ESM and matching rc.3 alias-aware browser bundle.
+- npm test: 32 passed, zero failed/skipped.
+- npm pack --dry-run: prepack rebuild and all 32 tests passed again; expected Host/client entry points, bundle patch and documentation included.
 - npm ls --depth=0: no invalid or missing direct dependencies.
 - git diff --check.
 
@@ -19,7 +21,7 @@ Tests cover fresh/fork explicit routes and inheritance; repeated same-session sw
 
 ## Compatibility review
 
-The rc.2 Team service still does not forward `agentOptions` from Team spawning; the async-local `startActivation` bridge remains necessary and its request contract is unchanged. Required model-selection, service decoration, projection and browser-panel contracts pass the integration suite. The runtime guard checks exact rc.2 versions (including dsh-scope), and release tests check all DSH lockfile entries as well as direct dependency pins.
+The rc.3 Team service still does not forward `agentOptions` from Team spawning; the async-local `startActivation` bridge remains necessary and its request contract is unchanged. Required model-selection, service decoration, projection and browser-panel contracts pass the integration suite. The runtime guard checks exact rc.3 versions (including dsh-scope), and release tests check all DSH lockfile entries as well as direct dependency pins.
 
 ### Earlier alpha migration fixes retained
 
@@ -27,6 +29,6 @@ The removed startContinuable method is replaced by startActivation. The router p
 
 ## Limits / deployment still required
 
-No cloud credentials, live provider billing, global installation or user profile configuration changed. No running DSH Host restart or existing-URL Web verification performed. The Host and profile packages must match this exact rc.2 release before loading the plugin. The historical inactive-context live incident is not independently reproduced or claimed universally fixed.
+No cloud credentials, live provider billing, global installation or user profile configuration changed. No running DSH Host restart or existing-URL Web verification performed. The Host and profile packages must match this exact rc.3 release before loading the plugin. The historical inactive-context live incident is not independently reproduced or claimed universally fixed.
 
-Browser verification is DOM-based against the built rc.2 panel. Native compaction is tested with a stub backend, not real summarization. Model-choice confirmation is system-prompt/tool-description guidance; code enforces route authorization and standard-subagent tool denial, not proof of human consent. Tool restrictions are not a security boundary against arbitrary host-side code or other plugins.
+Browser verification is DOM-based against the built rc.3 panel. Native compaction is tested with a stub backend, not real summarization. Model-choice confirmation is system-prompt/tool-description guidance; code enforces route authorization and standard-subagent tool denial, not proof of human consent. Tool restrictions are not a security boundary against arbitrary host-side code or other plugins.

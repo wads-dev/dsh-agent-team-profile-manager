@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1-rc.3
+
+- Support DSH `0.2.1-rc.3` with matching exact integration dependencies and runtime guard.
+- Build and validate the alias-aware panel against the rc.3 upstream bundle.
+- Retain tokenless GitHub OIDC publishing to the `rc` npm tag.
+
 ## 0.2.1-rc.2
 
 - Declare exact compatibility with DSH `0.2.1-rc.2`; align plugin version, DSH peers/dev dependencies, and lockfile.
