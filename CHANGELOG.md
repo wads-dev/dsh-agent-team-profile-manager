@@ -1,9 +1,10 @@
 # Changelog
 
-## 0.2.1-rc.4
+## 0.2.2-alpha.2
 
-- Align plugin and exact DSH integration dependencies with DSH `0.2.1-rc.4`.
-- Update the runtime compatibility guard, upstream browser bundle and release verification.
+- Align plugin version and DSH integrations with DSH `0.2.2-alpha.2`.
+- Update runtime guard and browser panel to the matching upstream release.
+- Publish the prerelease through OIDC with the matching `alpha` dist-tag.
 
 
 ## 0.2.1-rc.4

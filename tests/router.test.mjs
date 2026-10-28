@@ -22,7 +22,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools';
 import { jsonOutput } from '../lib/tools/schemas.js';
 import * as TeamTools from '@deepseek-ai/dsh-experimental-tool-agent-team';
 import Loader from '@deepseek-ai/cordis-plugin-loader';
-import { assertCompatibility } from '../lib/compatibility/dsh-0.2.1-rc.4.js';
+import { assertCompatibility } from '../lib/compatibility/dsh-0.2.2-alpha.2.js';
 const signal = new AbortController().signal;
 async function setup(t, script, options = {}) {
   const ctx = new Context();
@@ -336,8 +336,8 @@ test('Team policy hides late global subagent tools, guards scoped bypass and res
  const releases=['subagent','subagent_fork','list_subagent_models'].map(name=>ctx.tools.register(tool(name)));
  for(const name of ['subagent','subagent_fork','list_subagent_models'])assert.equal(ctx.tools.get(name,lead),undefined);
  const scoped=lead.ctx.tools.register(tool('subagent'));
- const blocked=await ctx.tools.execute({callId:'blocked',name:'subagent',arguments:{},agent:lead,signal});
- assert.equal(executed,0);assert.match(JSON.stringify(blocked),/disabled by the Team router/);
+ const blocked=await ctx.tools.execute({calls:[{type:'tool-call',id:'blocked',name:'subagent',arguments:'{}'}],agent:lead,signal});
+ assert.equal(executed,0);assert.equal(blocked.results.length,1);assert.equal(blocked.results[0].result.isError,true);assert.match(JSON.stringify(blocked.results[0].result),/disabled by the Team router/);
  const started=await spawn(ctx,lead);await until(()=>adapter.requests.length===1&&!ctx.agents.get(started.member.id));
  const prompt=JSON.stringify(adapter.requests[0]);
  assert.match(prompt,/ask the user which provider.model/i);
@@ -352,6 +352,6 @@ test('operator can opt out of subagent blocking without losing model-choice guid
  const {ctx,lead}=await setup(t,[],{routerConfig:{disableSubagents:false}});
  let executed=false;
  const release=ctx.tools.register(defineTool({name:'subagent',description:'test',parameters:{},output:jsonOutput({type:'string'}),execute:async()=>{executed=true;return 'ok';}}));
- await ctx.tools.execute({callId:'allowed',name:'subagent',arguments:{},agent:lead,signal});
- assert.equal(executed,true);release();
+ const batch=await ctx.tools.execute({calls:[{type:'tool-call',id:'allowed',name:'subagent',arguments:'{}'}],agent:lead,signal});
+ assert.equal(executed,true);assert.equal(batch.results.length,1);release();
 });
