@@ -1,9 +1,9 @@
 # Changelog
 
-## 0.2.2-alpha.3
+## 0.2.2-alpha.2
 
-- Publish plugin version `0.2.2-alpha.3` against DSH `0.2.2-alpha.2`, always using npm dist-tag `latest`.
-- Restore the latest tag after `0.2.2-alpha.2` was published to the alpha dist-tag.
+- Declare exact compatibility with DSH `0.2.2-alpha.2`; plugin, DSH peers and dev dependencies share the same version.
+- Publish prereleases to npm `latest` through OIDC with provenance.
 - Update runtime guard and browser panel to the matching upstream release.
 - Publish every release, including prereleases, through OIDC with the `latest` dist-tag.
 

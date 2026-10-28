@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-test('release declares actual browser entry and exact 0.2.2-alpha.3 plugin with alpha.2 host peers',async()=>{
+test('release declares actual browser entry and exact plugin and DSH peer versions',async()=>{
  const pkg=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
  assert.equal(pkg.exports['./client'],'./lib/client.js');assert.equal(pkg.dsh.client.platform,'web');
  const browser=await readFile(new URL('../lib/client.js',import.meta.url),'utf8');
@@ -16,8 +16,8 @@ test('release declares actual browser entry and exact 0.2.2-alpha.3 plugin with 
  assert.ok(patch.includes('name: '+pkg.name));
  const host=await import('../lib/index.js');
  assert.equal(host.name,'agent-team-profile-manager');
- assert.equal(pkg.version,'0.2.2-alpha.3');
- const dshVersion='0.2.2-alpha.2';
+ assert.equal(pkg.version,'0.2.2-alpha.2');
+ const dshVersion=pkg.version;
  for(const section of ['peerDependencies','devDependencies'])for(const [name,version] of Object.entries(pkg[section]))if(name.startsWith('@deepseek-ai/dsh-'))assert.equal(version,dshVersion,name);
  assert.equal(pkg.peerDependencies['@deepseek-ai/cordis'],'~4.0.6-alpha.1');
  assert.equal(pkg.devDependencies['@deepseek-ai/cordis-plugin-loader'],'~1.0.7-alpha.1');
