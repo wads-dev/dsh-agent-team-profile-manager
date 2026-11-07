@@ -1,12 +1,14 @@
 # Changelog
 
+## 0.2.2-rc.1
+
+- Align the plugin and all DSH peers/dev dependencies exactly to DSH `0.2.2-rc.1`; use Cordis 4.1.0 and Loader 1.1.0.
+- Update compatibility guard and build against the rc.1 browser bundle.
+- Keep npm OIDC publishing on `latest` and enforce version parity in CI.
+
 ## 0.2.2-alpha.2
 
-- Declare exact compatibility with DSH `0.2.2-alpha.2`; plugin, DSH peers and dev dependencies share the same version.
-- Publish prereleases to npm `latest` through OIDC with provenance.
-- Update runtime guard and browser panel to the matching upstream release.
-- Publish every release, including prereleases, through OIDC with the `latest` dist-tag.
-
+- Align the plugin with DSH `0.2.2-alpha.2`.
 
 ## 0.2.1-rc.4
 

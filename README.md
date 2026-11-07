@@ -1,13 +1,13 @@
 # dsh-agent-team-profile-manager
 
-Agent Teams model routing, durable display aliases and Team-first delegation for **DSH 0.2.2-alpha.2 only**. Node 22.23+.
+Agent Teams model routing, durable display aliases and Team-first delegation for **DSH 0.2.2-rc.1 only**. Node 22.23+.
 
 ## What this release fixes
 
 - Migrates the Team routing bridge from removed `startContinuable` to `startActivation`, retaining upstream provisioning, authority, cancellation and persistence.
 - Restores explicit provider/model/reasoning-effort selection for fresh and fork teammates and runtime model changes without replacing their sessions.
 - Shares both upstream Team policy and the new Team identity context when duplicate tool compositions are enabled, preventing duplicate-registration failures.
-- Builds the alias-aware Web panel from the matching 0.2.2-alpha.2 upstream browser bundle, not the old RC panel. Display aliases preserve stable message/task targets.
+- Builds the alias-aware Web panel from the matching 0.2.2-rc.1 upstream browser bundle, not the old RC panel. Display aliases preserve stable message/task targets.
 
 ## Team-first delegation (default)
 
@@ -49,7 +49,7 @@ A missing provider, disallowed route, invalid effort or unavailable exact model 
 
 ## Build and validation
 
-Plugin release: **0.2.2-alpha.3**. Compatible Host/Agent Teams release: **0.2.2-alpha.2**.
+Plugin release: **0.2.2-rc.1**. Compatible Host/Agent Teams release: **0.2.2-rc.1**.
 
 ~~~sh
 npm ci --ignore-scripts
@@ -58,13 +58,13 @@ npm test
 npm pack --dry-run
 ~~~
 
-32 tests cover actual 0.2.2-alpha.2 AgentLoop requests through keyless adapters, fresh/fork spawning, repeated switches and same-session history, JSONL restart/resume, invalid/cancelled selections, concurrent routing, real Cordis Loader duplicate composition/toggles, alias persistence/browser DOM navigation, and delegation visibility/dispatch/cleanup/opt-out. Compaction uses a stub backend; real summarization is not tested.
+32 tests cover actual 0.2.2-rc.1 AgentLoop requests through keyless adapters, fresh/fork spawning, repeated switches and same-session history, JSONL restart/resume, invalid/cancelled selections, concurrent routing, real Cordis Loader duplicate composition/toggles, alias persistence/browser DOM navigation, and delegation visibility/dispatch/cleanup/opt-out. Compaction uses a stub backend; real summarization is not tested.
 
 The suite does not exercise cloud credentials or install/restart the user's running Web profile. A successful local suite is not a claim of live-profile verification.
 
 ## Install / update a profile
 
-Stop and back up the selected profile first. Use Host and Agent Teams bundle **0.2.2-alpha.2** with this plugin **0.2.2-alpha.3**. Do not mix DSH package versions or force peer resolution.
+Stop and back up the selected profile first. Use Host and Agent Teams bundle **0.2.2-rc.1** with this plugin **0.2.2-rc.1**. Do not mix DSH package versions or force peer resolution.
 
 ~~~sh
 REPO="$HOME/path/to/dsh-agent-team-profile-manager" # replace
@@ -72,9 +72,9 @@ PROFILE=web # replace with your actual profile
 npm ci --ignore-scripts
 npm run build
 npm test
-dsh --version # must be 0.2.2-alpha.2
+dsh --version # must be 0.2.2-rc.1
 # Install/update the upstream bundle before this plugin:
-dsh plugin --profile "$PROFILE" add @deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-alpha.2
+dsh plugin --profile "$PROFILE" add @deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-rc.1
 dsh plugin --profile "$PROFILE" add "link:$REPO"
 dsh --profile "$PROFILE" --dump-config
 dsh --profile "$PROFILE"
@@ -106,8 +106,8 @@ After publication, install using:
 
 ~~~sh
 PROFILE=web # replace with your actual profile
-dsh plugin --profile "$PROFILE" add @deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-alpha.2
-dsh plugin --profile "$PROFILE" add dsh-agent-team-profile-manager@0.2.2-alpha.3
+dsh plugin --profile "$PROFILE" add @deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-rc.1
+dsh plugin --profile "$PROFILE" add dsh-agent-team-profile-manager@0.2.2-rc.1
 ~~~
 
 ## GitHub Actions CI and publication
@@ -121,7 +121,7 @@ Before the first automated release:
 
 1. Create the GitHub environment **npm** in **wads-dev/dsh-agent-team-profile-manager**, preferably with main-only deployment and required reviewers.
 2. Configure npm Trusted Publisher: GitHub Actions, owner **wads-dev**, repository **dsh-agent-team-profile-manager**, workflow **publish.yml**, environment **npm**. A first manual publication may be required to create the package before configuring its trusted publisher.
-3. Run **Publish to npm** from main. Version **0.2.2-alpha.2** publishes directly to `latest` via OIDC, without `NPM_TOKEN`. The GitHub Release is marked prerelease.
+3. Run **Publish to npm** from main. Version **0.2.2-rc.1** publishes directly to `latest` via OIDC, without `NPM_TOKEN`. The GitHub Release is marked prerelease.
 
 Git tagging and npm publication are not atomic. If publication fails after Git tagging, inspect the run and registry before recovery; do not blindly republish an immutable version.
 
