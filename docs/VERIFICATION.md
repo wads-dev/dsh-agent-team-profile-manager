@@ -21,7 +21,7 @@ Verified 2026-11-07 with Node v22.23.3 and matching published rc.1 DSH packages.
 
 Actual released AgentLoop, Team service/tools, SubagentRuntime, spawn/fork providers, filesystem/working-directory services, Cordis Loader and JSONL persistence are exercised. Keyless scripted adapters assert actual request provider/model/reasoningEffort/sessionId and history, not only metadata.
 
-Tests cover fresh/fork explicit routes and inheritance; repeated same-session switches; cold resume/full runtime restart; authorization and adapter validation; cancelled/invalid switches; concurrent spawn isolation; assembly snapshot timing; route and alias persistence; stable member/task identity; duplicate-enabled Team composition, both Loader orders and toggles; alias-aware browser DOM navigation; global subagent tools registered after startup; scoped bypass denial; Team creation while tools are blocked; prompt model-choice/reuse guidance; operator opt-out and disposal restoring tool access.
+Tests cover fresh/fork explicit routes and inheritance; repeated same-session switches; cold resume/full runtime restart; adapter route and reasoning-effort validation; cancelled/invalid switches; concurrent spawn isolation; assembly snapshot timing; route and alias persistence; stable member/task identity; duplicate-enabled Team composition, both Loader orders and toggles; alias-aware browser DOM navigation; global subagent tools registered after startup; scoped bypass denial; Team creation while tools are blocked; prompt model-choice/reuse guidance; operator opt-out and disposal restoring tool access.
 
 ## Compatibility review
 
@@ -35,4 +35,4 @@ The removed startContinuable method is replaced by startActivation. The router p
 
 No cloud credentials, live provider billing, global installation or user profile configuration changed. No running DSH Host restart or existing-URL Web verification performed. The Host and profile packages must match this exact rc.1 release before loading the plugin. The historical inactive-context live incident is not independently reproduced or claimed universally fixed.
 
-Browser verification is DOM-based against the built rc.1 panel. Native compaction is tested with a stub backend, not real summarization. Model-choice confirmation is system-prompt/tool-description guidance; code enforces route authorization and standard-subagent tool denial, not proof of human consent. Tool restrictions are not a security boundary against arbitrary host-side code or other plugins.
+Browser verification is DOM-based against the built rc.1 panel. Native compaction is tested with a stub backend, not real summarization. Model-choice confirmation is system-prompt/tool-description guidance; code validates routes with their adapters and enforces standard-subagent tool denial, not proof of human consent. Tool restrictions are not a security boundary against arbitrary host-side code or other plugins.

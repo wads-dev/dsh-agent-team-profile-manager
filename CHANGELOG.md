@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Enable dynamic Team model discovery, spawning and runtime switching for existing and new sessions; preserve session history and model selections across restarts.
+- Discover live provider catalogs, support exact adapter lookup for unlisted models, and report partial catalog failures.
+
 ## 0.2.2-rc.1
 
 - Align the plugin and all DSH peers/dev dependencies exactly to DSH `0.2.2-rc.1`; use Cordis 4.1.0 and Loader 1.1.0.
@@ -47,7 +52,7 @@
 
 ### Improvements
 - Align the plugin release and all DSH integration dependencies with DSH `0.2.1-alpha.2` (and its matching Cordis alpha releases).
-- Add provider/model/reasoning-effort selection when spawning teammates, with exact route authorization and model discovery through `list_models`.
+- Add provider/model/reasoning-effort selection when spawning teammates and model discovery through `list_models`.
 - Add teammate model-switch tools that apply the selected route on the next inference without replacing the teammate session.
 - Add Lead-controlled teammate display aliases, persisted with successful tool results and used only for UI labels; stable teammate targets remain unchanged.
 

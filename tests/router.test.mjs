@@ -23,6 +23,13 @@ import { jsonOutput } from '../lib/tools/schemas.js';
 import * as TeamTools from '@deepseek-ai/dsh-experimental-tool-agent-team';
 import Loader from '@deepseek-ai/cordis-plugin-loader';
 import { assertCompatibility } from '../lib/compatibility/dsh-0.2.2-rc.1.js';
+import { routingProjection } from '../lib/routing/state.js';
+// Recreate the old checkpoint shape to test replay across the projection version change.
+function legacyProjection() {
+ return { ...routingProjection, init:(header,count)=>({ ...routingProjection.init(header,count), allowed:null }),
+   apply:(state,event)=>event.type==='subagent/model-selection-policy' && state.allowed===null
+     ? { ...state, allowed:event.data.allowedModels } : routingProjection.apply(state,event) };
+}
 const signal = new AbortController().signal;
 async function setup(t, script, options = {}) {
   const ctx = new Context();
@@ -43,13 +50,16 @@ async function setup(t, script, options = {}) {
     if (!['A','B','C'].includes(model)) throw new Error('Unknown model "' + model + '" for provider "' + provider + '"');
     return {provider,id:model,name:model,reasoning:{efforts:[{id:'low',name:'Low'},{id:'high',name:'High'}],defaultEffort:'low'}};
   };
+  adapter.listModels = async provider => (provider === 'one' ? ['A', 'C'] : ['B']).map(id => ({provider, id, name:id}));
   const secondAdapter = new MockAdapter([]);
   secondAdapter.resolveModel = adapter.resolveModel;
+  secondAdapter.listModels = adapter.listModels;
   secondAdapter.stream = async function* (request) { secondAdapter.requests.push(request); yield* adapter.stream(request); };
   ctx.llm.registerAdapter(['one'], adapter);
   ctx.llm.registerAdapter(['two'], secondAdapter);
   ctx.on('agent/pre-step', async (payload,next) => payload.agent.id === 'lead' && !options.driveLead ? {kind:'reject'} : next(), {prepend:true});
-  ctx.provide('subagentModelSelection', { current: () => ({enabled:options.enabled !== false,allowedModels:[{provider:'one',model:'A'},{provider:'two',model:'B'},{provider:'one',model:'C'}]}) });
+  if (options.beforeRouter) await options.beforeRouter(ctx);
+  if (!options.noModelSettings) ctx.provide('subagentModelSelection', { current: () => ({enabled:options.enabled !== false,allowedModels:[{provider:'one',model:'A'},{provider:'two',model:'B'},{provider:'one',model:'C'}]}) });
   let routerFiber;
   if (options.loader) {
     await ctx.plugin(Loader,{baseUrl:new URL('../',import.meta.url).href});
@@ -100,7 +110,7 @@ test('multiple switches A → B → C → A preserve one session and full histor
  assert.equal(ctx.agentTeams.listMembers(lead).length,2);
  assert.ok(JSON.stringify(adapter.requests[3].messages).includes('switch_model'));
 });
-test('same route is a no-op, invalid effort and disallowed route do not commit', async t => {
+test('same route is a no-op, invalid effort and unknown model do not commit', async t => {
  const {ctx,lead,adapter}=await setup(t,[toolCallResponse('same','switch_model',{provider:'one',model:'A'}),toolCallResponse('bad-effort','switch_model',{provider:'two',model:'B',reasoning_effort:'impossible'}),toolCallResponse('bad-model','switch_model',{provider:'one',model:'nonexistent'}),textResponse('done')]);
  const started=await spawn(ctx,lead);
  await until(()=>adapter.requests.length===4 && !ctx.agents.get(started.member.id));
@@ -108,11 +118,43 @@ test('same route is a no-op, invalid effort and disallowed route do not commit',
  const handle=await ctx.sessionPersistence.open(started.member.id,'read');const events=(await handle.read()).events;await handle.close();
  assert.equal(events.filter(e=>e.type==='model/selection').length,0);
 });
-test('model discovery reports runtime metadata and allowed routes only', async t => {
+test('model discovery reports live catalogs and exact runtime metadata', async t => {
  const {ctx,lead}=await setup(t,[]);
  const result=await call(ctx,lead,'list_models',{});
  assert.equal(result.routes.length,3);assert.ok(result.routes.every(r=>r.available && r.metadata.reasoning.defaultEffort==='low'));
- await assert.rejects(call(ctx,lead,'list_models',{provider:'unallowed'}),/not allowed/);
+ await assert.rejects(call(ctx,lead,'list_models',{provider:'unregistered'}),/Unknown provider/);
+});
+test('live catalog changes and exact unlisted routes never depend on Host allowlists', async t => {
+ const {ctx,lead,adapter}=await setup(t,[],{enabled:false});
+ let catalog=['A'];
+ adapter.listModels=async provider=>catalog.map(id=>({provider,id,name:id}));
+ assert.deepEqual((await call(ctx,lead,'list_models',{provider:'one'})).routes.map(r=>r.model),['A']);
+ catalog=['A','C'];
+ assert.deepEqual((await call(ctx,lead,'list_models',{provider:'one'})).routes.map(r=>r.model),['A','C']);
+ catalog=['A'];
+ const exact=await call(ctx,lead,'list_models',{provider:'one',model:'C'});
+ assert.equal(exact.routes[0].available,true);assert.equal(exact.routes[0].metadata.id,'C');
+ const missing=await call(ctx,lead,'list_models',{provider:'one',model:'unknown'});
+ assert.equal(missing.routes[0].available,false);assert.match(missing.routes[0].reason,/Unknown model/);
+});
+test('routes absent from a non-empty Host allowlist can be spawned and switched',async t=>{
+ const {ctx,lead,adapter,secondAdapter}=await setup(t,[textResponse('spawned C'),toolCallResponse('off-list','switch_model',{provider:'two',model:'C'}),textResponse('switched C')]);
+ secondAdapter.listModels=async provider=>[{provider,id:'B',name:'B'}]; // C is not advertised either.
+ // The Host allowlist has one/A, one/C and two/B; two/C is intentionally absent.
+ assert.deepEqual((await call(ctx,lead,'list_models',{provider:'two'})).routes.map(r=>r.model),['B']);
+ const offList=await spawn(ctx,lead,{provider:'two',model:'C'});
+ await until(()=>adapter.requests.length===1&&!ctx.agents.get(offList.member.id));
+ const switched=await spawn(ctx,lead,{name:'switcher'});
+ await until(()=>adapter.requests.length===3&&!ctx.agents.get(switched.member.id));
+ assert.deepEqual(adapter.requests.map(r=>[r.provider,r.model]),[['two','C'],['one','A'],['two','C']]);
+});
+test('catalog failure is reported while exact lookup and other providers still work', async t => {
+ const {ctx,lead,adapter}=await setup(t,[]);
+ adapter.listModels=async()=>{throw new Error('catalog offline');};
+ const all=await call(ctx,lead,'list_models',{});
+ assert.match(all.message,/one: catalog offline/);assert.deepEqual(all.routes.map(r=>r.model),['B']);
+ const exact=await call(ctx,lead,'list_models',{provider:'one',model:'C'});
+ assert.equal(exact.routes[0].available,true);assert.equal(exact.routes[0].metadata.id,'C');
 });
 test('Lead switch waits for next inference, duplicates are no-ops, Team state survives', async t => {
  const {ctx,lead,adapter}=await setup(t,[toolCallResponse('inspect','get_current_model',{}),textResponse('new route')]);
@@ -165,12 +207,19 @@ test('fork spawn overrides route without inheriting Lead model-selection intent'
  await until(()=>adapter.requests.length===1 && !ctx.agents.get(started.member.id));
  assert.equal(adapter.requests[0].model,'B');assert.equal(adapter.requests[0].provider,'two');
 });
-test('disabled model selection preserves spawn inheritance but rejects explicit selection', async t => {
- const {ctx,lead,adapter}=await setup(t,[textResponse('inherit')],{enabled:false});
- assert.equal((await call(ctx,lead,'list_models',{})).enabled,false);
- await assert.rejects(spawn(ctx,lead,{provider:'two',model:'B'}),/disabled/);
- const started=await spawn(ctx,lead);await until(()=>adapter.requests.length===1 && !ctx.agents.get(started.member.id));
- assert.equal(adapter.requests[0].model,'A');
+test('Team route selection works when native subagent model selection is disabled', async t => {
+ const {ctx,lead,adapter}=await setup(t,[textResponse('selected'),textResponse('inherit')],{enabled:false});
+ assert.equal((await call(ctx,lead,'list_models',{})).enabled,true);
+ const first=await spawn(ctx,lead,{provider:'two',model:'B'});await until(()=>adapter.requests.length===1 && !ctx.agents.get(first.member.id));
+ const second=await spawn(ctx,lead,{name:'inherited'});await until(()=>adapter.requests.length===2 && !ctx.agents.get(second.member.id));
+ assert.deepEqual(adapter.requests.map(r=>r.model),['B','A']);
+});
+test('Team discovery and explicit spawning work without the native settings service', async t => {
+ const {ctx,lead,adapter}=await setup(t,[textResponse('independent')],{noModelSettings:true});
+ assert.equal((await call(ctx,lead,'list_models',{provider:'two',model:'B'})).routes[0].available,true);
+ const started=await spawn(ctx,lead,{provider:'two',model:'B'});
+ await until(()=>adapter.requests.length===1&&!ctx.agents.get(started.member.id));
+ assert.equal(adapter.requests[0].model,'B');
 });
 test('missing compatibility API fails clearly', () => {
  assert.throws(()=>assertCompatibility({}),/Missing DSH API/);
@@ -187,12 +236,12 @@ test('invalid and aborted lead switches leave actual current route intact', asyn
  assert.equal(live.session.snapshotEvents().filter(e=>e.type==='model/selection').length,0);
  live.cancel({kind:'user'});await until(()=>!ctx.agents.get(live.id));
 });
-test('provider removed after opt-in is unavailable and rejects switch without route mutation', async t => {
+test('provider removed at runtime is unavailable and rejects switch without route mutation', async t => {
  const {ctx,lead,adapter}=await setup(t,['hang']);
  const started=await spawn(ctx,lead);await until(()=>adapter.requests.length===1);
  const live=ctx.agents.get(started.member.id);const original=ctx.llm.listProviders.bind(ctx.llm);
  ctx.llm.listProviders=()=>original().filter(p=>p.id!=='two');
- const models=await call(ctx,live,'list_models',{provider:'two'});assert.equal(models.routes[0].available,false);
+ await assert.rejects(call(ctx,live,'list_models',{provider:'two'}),/Unknown provider/);
  await assert.rejects(call(ctx,live,'switch_model',{provider:'two',model:'B'}),/Unknown provider/);
  assert.equal((await call(ctx,live,'get_current_model',{})).pending,null);
  live.cancel({kind:'user'});await until(()=>!ctx.agents.get(live.id));
@@ -295,7 +344,61 @@ test('Lead names a cold teammate without changing tasks and teammate cannot rena
  assert.deepEqual(ctx.agentTeams.listTasks(lead),before);assert.equal(ctx.agentTeams.listMembers(lead)[1].name,'backend');
  await assert.rejects(call(ctx,lead,'set_teammate_display_name',{target:'missing',display_name:'Unknown'}),/not found/);
 });
-test('old Team without policy is authorized by Host without opt-in or age restriction',async t=>{
+test('legacy frozen policies do not block spawning or switching after a restart',async t=>{
+ const first=await setup(t,[textResponse('history before upgrade')]);
+ first.lead.session.append('subagent/model-selection-policy',{allowedModels:[{provider:'one',model:'A'}]});
+ first.ctx.on('agent/created',({agent})=>{
+   if(agent.id!=='lead') agent.session.append('subagent/model-selection-policy',{allowedModels:[{provider:'one',model:'A'}]});
+ });
+ const started=await spawn(first.ctx,first.lead);
+ await until(()=>first.adapter.requests.length===1&&!first.ctx.agents.get(started.member.id));
+ const oldChild=await first.ctx.sessionPersistence.open(started.member.id,'read');
+ const childEvents=(await oldChild.read()).events;await oldChild.close();
+ assert.ok(childEvents.some(e=>e.type==='subagent/model-selection-policy' && e.data.allowedModels.length===1 && e.data.allowedModels[0].model==='A'));
+ await first.ctx.sessions.flush(first.lead.session);await first.ctx.fiber.dispose();
+ const second=await setup(t,[toolCallResponse('switch-legacy','switch_model',{provider:'two',model:'B'}),textResponse('after switch'),textResponse('explicit spawn')],{root:first.storageRoot,resume:true,enabled:false});
+ assert.equal((await call(second.ctx,second.lead,'list_models',{provider:'two',model:'B'})).routes[0].available,true);
+ await second.ctx.agentTeams.sendMessage(second.lead,{target:'backend',content:[{type:'text',text:'Continue the history'}],signal});
+ await until(()=>second.adapter.requests.length===2&&!second.ctx.agents.get(started.member.id));
+ assert.deepEqual(second.adapter.requests.map(r=>r.model),['A','B']);
+ assert.ok(JSON.stringify(second.adapter.requests[1].messages).includes('history before upgrade'));
+ const other=await spawn(second.ctx,second.lead,{name:'new-worker',provider:'two',model:'B'});
+ await until(()=>second.adapter.requests.length===3&&!second.ctx.agents.get(other.member.id));
+ assert.equal(second.adapter.requests[2].model,'B');
+ assert.equal(second.ctx.agentTeams.listMembers(second.lead).find(m=>m.name==='backend').id,started.member.id);
+ assert.ok(second.lead.session.snapshotEvents().some(e=>e.type==='subagent/model-selection-policy'));
+});
+test('version-one checkpoints replay model selections without rewriting session history',async t=>{
+ const first=await setup(t,[toolCallResponse('select-before-migration','switch_model',{provider:'two',model:'B'}),textResponse('version one history')],{
+   beforeRouter:ctx=>{
+     const {stateVersion:_stateVersion,...definition}=legacyProjection();
+     ctx.sessionProjections.register({...definition,stateVersion:1});
+   },
+ });
+ const started=await spawn(first.ctx,first.lead);
+ await until(()=>first.adapter.requests.length===2&&!first.ctx.agents.get(started.member.id));
+ const child=await first.ctx.agents.resume({resumeSessionId:SessionId(started.member.id)});
+ const rows=first.ctx.sessionProjections.checkpoint(child.agent.session);
+ assert.equal(rows.agentTeamModelRouter.ver,1);
+ assert.equal(rows.agentTeamModelRouter.val.route.model,'B');
+ const storedEvents=child.agent.session.snapshotEvents();
+ const restored=first.ctx.sessionProjections.restore(rows,storedEvents,0,child.agent.session.header,0);
+ assert.equal(restored.checkpoint.agentTeamModelRouter.ver,1);
+ await child.dispose();
+ await first.ctx.sessions.flush(first.lead.session);await first.ctx.fiber.dispose();
+ const second=await setup(t,[textResponse('after migration')],{root:first.storageRoot,resume:true});
+ assert.equal(second.ctx.sessionProjections.restoreFloor(rows),0);
+ const migrated=second.ctx.sessionProjections.restore(rows,storedEvents,0,child.agent.session.header,0);
+ assert.equal(migrated.checkpoint.agentTeamModelRouter.ver,2);
+ assert.equal(migrated.checkpoint.agentTeamModelRouter.val.route.model,'B');
+ assert.deepEqual(Object.keys(migrated.checkpoint.agentTeamModelRouter.val).sort(),['boundary','route']);
+ await second.ctx.agentTeams.sendMessage(second.lead,{target:'backend',content:[{type:'text',text:'continue same session'}],signal});
+ await until(()=>second.adapter.requests.length===1&&!second.ctx.agents.get(started.member.id));
+ assert.equal(second.adapter.requests[0].model,'B');
+ assert.ok(JSON.stringify(second.adapter.requests[0].messages).includes('version one history'));
+ assert.equal(second.ctx.agentTeams.listMembers(second.lead).find(m=>m.name==='backend').id,started.member.id);
+});
+test('old Team without policy switches without session age restriction',async t=>{
  const first=await setup(t,[textResponse('legacy decision')],{enabled:false});
  const started=await spawn(first.ctx,first.lead);await until(()=>first.adapter.requests.length===1&&!first.ctx.agents.get(started.member.id));
  await first.ctx.sessions.flush(first.lead.session);await first.ctx.fiber.dispose();
@@ -325,7 +428,7 @@ test('compact_teammate delegates exact native target/signal and preserves identi
 });
 test('invalid selection is rejected before creating a roster member', async t => {
  const {ctx,lead,adapter}=await setup(t,[]);
- await assert.rejects(spawn(ctx,lead,{provider:'two',model:'nonexistent'}),/not allowed/);
+ await assert.rejects(spawn(ctx,lead,{provider:'two',model:'nonexistent'}),/Cannot resolve model/);
  assert.equal(ctx.agentTeams.listMembers(lead).length,1);assert.equal(adapter.requests.length,0);
 });
 

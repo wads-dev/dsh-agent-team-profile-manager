@@ -5,10 +5,10 @@
 Installed CLI package and Agent/Session/LLM/Subagent/Tools/Team packages report 0.2.0-rc.2. The installed payload contains bundled ESM and declarations, not a working source checkout. Upstream release baseline: 639ed015397290b3745d163aafe02ffee4aa3f84.
 
 - [#8324](https://github.com/deepseek-ai/deepseek-harness/discussions/8324): per-teammate route selection proposal and implementation.
-- [Implementation branch](https://github.com/ivbrajkovic/deepseek-harness/tree/feat/agent-team-teammate-model-selection), inspected at 30da5c7: shared validation, policy sampler, discovery reference-counting, roster pass-through.
+- [Implementation branch](https://github.com/ivbrajkovic/deepseek-harness/tree/feat/agent-team-teammate-model-selection), inspected at 30da5c7: route selection and Team roster integration.
 - [#8035](https://github.com/deepseek-ai/deepseek-harness/discussions/8035): Team provider means spawn/fork, not the LLM provider; roster omits agentOptions.
 
-The upstream route validation helper is vendored with attribution because rc.2 does NOT export its model-selection/list-models/model-selection-state subpaths. We do not pretend the proposal's additional exports exist in rc.2.
+The model-selection helper is adapted from upstream with attribution because rc.2 does not export its model-selection subpath.
 
 ## Lifecycle findings
 
@@ -24,7 +24,7 @@ Cordis internal/get is a declared framework waterfall. The compatibility layer r
 
 The bundle disables only the original tool-agent-team composition row and mounts that exact upstream plugin as its child AFTER decoration. All upstream Team tool bodies and ownership checks remain intact. No fork of Team state/service is maintained. Live hot-install into a composition already owning the same scoped tool names is not supported: restart with the bundle patch, then resume.
 
-Policies reuse native subagent/model-selection-policy and Host subagentModelSelection.current. Existing Sessions keep their durable allowlist. No silent widening based on new Host settings. Model metadata and effort validation are adapter-owned through resolveModelInfo/resolveCallConfig; catalogs remain advisory as in DSH.
+Model metadata and effort validation are adapter-owned through resolveModelInfo/resolveCallConfig; catalogs remain advisory as in DSH. Existing session history is preserved, and route selections remain resumable across projection updates.
 
 ## UI naming investigation
 
@@ -32,4 +32,4 @@ The shipped TeamMemberRow renders member.name directly from durable agentTeam pr
 
 ## Verification status
 
-The initial six integration tests passed on exact rc.2 packages, using the actual AgentLoop/Team/Subagent/JSONL persistence and keyless scripted LLM adapters. They observe provider stream GenerateOptions (not only metadata): explicit spawn, inheritance, A→B, cold resume with history, A→B→C→A on one session, no-op/invalid effort/invalid route, and allowed runtime discovery. Later verification adds distinct provider adapter registrations, Lead-switch ownership/mailbox preservation, full runtime restart, fork inherited-boundary routing, cancellation, unavailable provider handling, explicit output schemas and packaging/install documentation. See tests/router.test.mjs and README.md for current coverage.
+The initial six integration tests passed on exact rc.2 packages, using the actual AgentLoop/Team/Subagent/JSONL persistence and keyless scripted LLM adapters. They observe provider stream GenerateOptions (not only metadata): explicit spawn, inheritance, A→B, cold resume with history, A→B→C→A on one session, no-op/invalid effort/invalid route, and runtime model discovery. Later verification adds distinct provider adapter registrations, Lead-switch ownership/mailbox preservation, full runtime restart, fork inherited-boundary routing, cancellation, unavailable provider handling, explicit output schemas and packaging/install documentation. See tests/router.test.mjs and README.md for current coverage.

@@ -1,29 +1,13 @@
 import { installModelSelection } from '@deepseek-ai/dsh-agent';
 import { parentAgentOptionsForDelegation } from '@deepseek-ai/dsh-subagent';
-import { requestedAgentOptions, assertAllowedModelSelection } from '../vendor/model-selection.js';
+import { requestedAgentOptions } from '../vendor/model-selection.js';
 export const same = (a, b) => !!a && !!b && a.provider === b.provider && a.model === b.model && a.reasoningEffort === b.reasoningEffort;
 export class ModelRouter {
-  constructor(ctx) { this.ctx = ctx; this.refs = new Map(); this.locks = new Map(); this.policies = new WeakMap(); }
+  constructor(ctx) { this.ctx = ctx; this.refs = new Map(); this.locks = new Map(); }
   state(session) { return this.ctx.sessionProjections.stateOf(session, 'agentTeamModelRouter'); }
-  policy(agent) {
-    if (this.policies.has(agent)) return this.policies.get(agent);
-    const own = this.state(agent.session)?.allowed;
-    if (own !== null && own !== undefined) { const policy = { routes: own }; this.policies.set(agent, policy); return policy; }
-    const parent = this.ctx.sessions.get(agent.session.header.parentSession);
-    const inherited = parent && this.state(parent)?.allowed;
-    const settings = this.ctx.get('subagentModelSelection')?.current();
-    const routes = inherited ?? (agent.session.header.origin !== 'subagent' && settings?.enabled ? settings.allowedModels : undefined);
-    if (routes?.length) {
-      agent.session.append('subagent/model-selection-policy', { allowedModels: routes });
-      const policy = { routes }; this.policies.set(agent, policy); return policy;
-    }
-    // Do not cache absence: Host authorization or a parent policy may become available later.
-    return undefined;
-  }
   install(agent) {
     if (this.refs.has(agent)) return;
     const ref = { current: this.state(agent.session)?.route ?? undefined, assembled: undefined };
-    this.policy(agent);
     const dispose = this.ctx.agentTeams.tryMembership(agent)?.role === 'teammate' ? installModelSelection(agent.ctx, ref) : () => {};
     const observe = agent.ctx.on('session/event', (session, event) => {
       if (session === agent.session && event.type === 'model/selection') ref.current = event.data;
@@ -42,10 +26,8 @@ export class ModelRouter {
     return { session: agent.id, current: wire(current), pending: selected && !same(current, selected) ? wire(selected) : null, next: wire(selected ?? current) };
   }
   async validate(agent, args, signal, spawn = false) {
-    const policy = this.policy(agent);
     const baseline = parentAgentOptionsForDelegation(agent);
-    const requested = requestedAgentOptions(baseline, undefined, args, policy !== undefined);
-    assertAllowedModelSelection(policy, baseline, requested, args);
+    const requested = requestedAgentOptions(baseline, undefined, args);
     const provider = requested?.provider ?? baseline.provider;
     const model = requested?.model ?? baseline.model;
     if (!this.ctx.llm.listProviders().some(candidate => candidate.id === provider)) throw new Error('Unknown provider "' + provider + '". Use list_models to inspect routes.');

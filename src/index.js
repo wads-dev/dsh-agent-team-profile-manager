@@ -29,7 +29,7 @@ export async function apply(ctx, config = {}) {
       ...definition,
       parameters: { ...definition.parameters, properties: { ...definition.parameters.properties,
         provider: { type: 'string' }, model: { type: 'string' }, reasoning_effort: { type: 'string' } } },
-      description: definition.description + ' Use this instead of subagent/subagent_fork. Ask the user which model to use before delegation (one for all or per responsibility), then reuse that choice. Reuse suitable existing members via send_message. Optional provider/model/reasoning_effort select an authorized LLM route; omit only when the user chose inheritance.',
+      description: definition.description + ' Use this instead of subagent/subagent_fork. Ask the user which model to use before delegation (one for all or per responsibility), then reuse that choice. Reuse suitable existing members via send_message. Optional provider/model/reasoning_effort select a live adapter route; omit only when the user chose inheritance.',
       async execute(args, exec) {
         if (!hasDelegationModelRequest(args)) return definition.execute(args, exec);
         if (!exec.agent) throw new Error('spawn_teammate requires a calling Agent');
@@ -104,7 +104,7 @@ export async function apply(ctx, config = {}) {
       },
     })));
     register('get_current_model', 'Read this exact Agent route from its actual request header, with pending/next route.', {}, async (_args, exec) => router.info(exec.agent));
-    register('switch_model', 'Teammate only: schedule an authorized route for the next model invocation; never interrupt an executing inference or create a new session.', { ...routeFields, provider: { ...routeFields.provider, required: true }, model: { ...routeFields.model, required: true } }, (args, exec) => router.switch(exec.agent, args, exec.signal));
+    register('switch_model', 'Teammate only: schedule a validated route for the next model invocation; never interrupt an executing inference or create a new session.', { ...routeFields, provider: { ...routeFields.provider, required: true }, model: { ...routeFields.model, required: true } }, (args, exec) => router.switch(exec.agent, args, exec.signal));
     register('switch_teammate_model', 'Lead only: change a live teammate route for its next model invocation. Does not wake or recreate it. Cold teammates must first be resumed with send_message.', { teammate: { type: 'string', required: true }, ...routeFields, provider: { ...routeFields.provider, required: true }, model: { ...routeFields.model, required: true } }, async (args, exec) => {
       const member = ctx.agentTeams.tryMembership(exec.agent);
       if (member?.role !== 'lead') throw new Error('Only the Team Lead can change another teammate route');
@@ -114,22 +114,37 @@ export async function apply(ctx, config = {}) {
       if (!live) throw new Error('Teammate is cold/unloaded; use send_message to resume it before switching');
       return router.switch(live, args, exec.signal);
     });
-    register('list_models', 'Discover exact authorized provider/model routes from the current Session policy and live DSH adapter metadata. No hardcoded catalog.', { provider: { type: 'string' }, model: { type: 'string' } }, async (args, exec) => {
+    register('list_models', 'Discover live registered provider/model routes and adapter metadata. Catalogs are advisory; exact queries do not require catalog membership. available indicates metadata resolution only, not successful inference.', { provider: { type: 'string' }, model: { type: 'string' } }, async (args, exec) => {
       if (args.model !== undefined && args.provider === undefined) throw new Error('model requires provider');
       for (const key of ['provider', 'model']) if (args[key] !== undefined && args[key].length === 0) throw new Error(key + ' must be non-empty');
-      const policy = router.policy(exec.agent);
-      if (!policy) return { enabled: false, routes: [], message: 'Model selection is disabled for this Session. Enable Host subagent-model-selection with a non-empty allowed model list. Session age does not restrict selection; no new Session is required.' };
-      const routes = policy.routes.filter(route => (!args.provider || route.provider === args.provider) && (!args.model || route.model === args.model));
-      if ((args.provider || args.model) && !routes.length) throw new Error('Requested route is not allowed for this Session');
+      exec.signal.throwIfAborted();
       const providers = ctx.llm.listProviders();
-      const result = [];
-      for (const route of routes) {
+      const selected = args.provider === undefined ? providers : providers.filter(provider => provider.id === args.provider);
+      if (args.provider !== undefined && !selected.length) throw new Error('Unknown provider "' + args.provider + '"');
+      const routes = [];
+      const catalogFailures = [];
+      for (const provider of selected) {
         exec.signal.throwIfAborted();
-        if (!providers.some(provider => provider.id === route.provider)) { result.push({ ...route, available: false, reason: 'Provider is not registered' }); continue; }
-        try { const model = await ctx.llm.resolveModelInfo(route.provider, route.model, exec.signal); result.push({ ...route, available: true, metadata: model }); }
-        catch (error) { exec.signal.throwIfAborted(); result.push({ ...route, available: false, reason: String(error.message ?? error) }); }
+        let models;
+        if (args.model !== undefined) {
+          models = [{ id: args.model }];
+        } else {
+          try { models = await ctx.llm.listModels(provider.id); }
+          catch (error) {
+            exec.signal.throwIfAborted();
+            catalogFailures.push(provider.id + ': ' + String(error.message ?? error));
+            continue;
+          }
+        }
+        for (const model of models) {
+          exec.signal.throwIfAborted();
+          const route = { provider: provider.id, model: model.id };
+          try { routes.push({ ...route, available: true, metadata: await ctx.llm.resolveModelInfo(provider.id, model.id, exec.signal) }); }
+          catch (error) { exec.signal.throwIfAborted(); routes.push({ ...route, available: false, reason: String(error.message ?? error) }); }
+        }
       }
-      return { enabled: true, routes: result };
+      exec.signal.throwIfAborted();
+      return { enabled: true, routes, ...(catalogFailures.length ? { message: 'Could not list models for ' + catalogFailures.join('; ') + '. Query an exact provider/model directly.' } : {}) };
     });
     installed.set(agent, () => { for (const dispose of disposers.reverse()) dispose(); router.remove(agent); });
   };

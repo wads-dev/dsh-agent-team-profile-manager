@@ -19,11 +19,11 @@ A dedicated system-prompt section and spawn-tool description instruct the model 
 
 1. Obtain human authorization to delegate; treat a request for sub-agents as Team-based delegation.
 2. Ask which provider/model to use before delegation: one for all members, a per-responsibility mapping, or explicit inheritance. Reuse the choice for its stated scope.
-3. Discover exact allowed routes via `list_models`; never guess model IDs or consent.
+3. Discover live provider/model routes via `list_models`; never guess model IDs or consent.
 4. Reuse suitable members with `list_agents` and `send_message` instead of creating one per task.
 5. Use Team runtime switch tools rather than claiming only sub-agents support model selection.
 
-**Model-choice confirmation is prompt guidance, not mechanically verified consent.** The plugin cannot reliably infer from arbitrary conversation text that a human chose a model. It does not add a misleading “confirmed” boolean the model could fill itself. Host model authorization remains enforced by code.
+**Model-choice confirmation is prompt guidance, not mechanically verified consent.** The plugin cannot reliably infer from arbitrary conversation text that a human chose a model. It does not add a misleading “confirmed” boolean the model could fill itself.
 
 Operator opt-out in the router's existing config: `disableSubagents: false`. Default is true; the model-choice guidance remains enabled in either mode.
 
@@ -32,7 +32,7 @@ Operator opt-out in the router's existing config: `disableSubagents: false`. Def
 | Tool | Scope / behavior |
 | --- | --- |
 | spawn_teammate | Lead; upstream tool plus optional provider/model/reasoning_effort. Provider and model together; omission preserves inheritance. |
-| list_models | Team members; exact authorized routes and current adapter metadata. |
+| list_models | Team members; live registered-provider catalogs and exact adapter metadata. |
 | get_current_model | Actual last-used route, pending and next route, session ID. |
 | switch_model | Teammate; changes its own route at the next model invocation. |
 | switch_teammate_model | Lead; changes an exact live teammate's next route. Cold teammates must first be loaded via send_message. |
@@ -41,11 +41,11 @@ Operator opt-out in the router's existing config: `disableSubagents: false`. Def
 
 A running inference is never switched midway. A selected model may take effect on the next step of the same turn. The Lead's own route is not changed by these teammate tools.
 
-## Host authorization
+## Model discovery and selection
 
-Enable **subagent-model-selection** in the DSH Host settings and authorize exact provider/model routes. The name of that native setting remains unchanged even when standard subagent tools are blocked. Sessions without a saved policy capture the Host allowlist; children inherit it. Existing durable policies are preserved, not silently broadened.
+Team model routing discovers and validates routes through the live DSH LLM providers. Model switches apply on the next invocation while retaining the teammate session and history.
 
-A missing provider, disallowed route, invalid effort or unavailable exact model fails before committing a route or creating a teammate. There is no hardcoded model catalog.
+`list_models` discovers the live catalogs of registered providers; an exact provider/model query resolves the route directly even if the provider omits it from its advisory catalog. Provider catalog failures are reported, and exact lookup remains available. A missing provider, invalid effort or an exact model the adapter cannot resolve fails before committing a route or creating a teammate. The `available` flag means adapter metadata resolved, not that the provider has verified the model, credentials, quota, or a successful inference; some adapters accept arbitrary model IDs. No model catalog is hardcoded.
 
 ## Build and validation
 
@@ -58,7 +58,7 @@ npm test
 npm pack --dry-run
 ~~~
 
-32 tests cover actual 0.2.2-rc.1 AgentLoop requests through keyless adapters, fresh/fork spawning, repeated switches and same-session history, JSONL restart/resume, invalid/cancelled selections, concurrent routing, real Cordis Loader duplicate composition/toggles, alias persistence/browser DOM navigation, and delegation visibility/dispatch/cleanup/opt-out. Compaction uses a stub backend; real summarization is not tested.
+Integration tests cover actual 0.2.2-rc.1 AgentLoop requests through keyless adapters, live model discovery, historical-session compatibility, fresh/fork spawning, repeated switches and same-session history, JSONL restart/resume, invalid/cancelled selections, concurrent routing, real Cordis Loader duplicate composition/toggles, alias persistence/browser DOM navigation, and delegation visibility/dispatch/cleanup/opt-out. Compaction uses a stub backend; real summarization is not tested.
 
 The suite does not exercise cloud credentials or install/restart the user's running Web profile. A successful local suite is not a claim of live-profile verification.
 
