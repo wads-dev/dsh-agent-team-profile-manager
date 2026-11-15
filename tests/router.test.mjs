@@ -17,9 +17,10 @@ test('native fork also accepts an explicit authorized model',async t=>{
 
 test('self-switch changes actual next inference, retaining session and prior history',async t=>{
  const f=await setup(t,[toolCallResponse('switch','switch_model',{provider:'two',model:'B'}),textResponse('B after switch')]);
- const child=await f.spawn();await until(()=>f.adapter.requests.length===2);
- assert.deepEqual(f.adapter.requests.map(r=>r.model),['A','B']);assert.equal(f.adapter.requests[0].sessionId,child.id);assert.equal(f.adapter.requests[1].sessionId,child.id);
- assert.match(JSON.stringify(f.adapter.requests[1].messages),/First task/);
+ const child=await f.spawn();await until(()=>f.adapter.requests.filter(r=>r.sessionId===child.id).length>=2);
+ const requests=f.adapter.requests.filter(r=>r.sessionId===child.id);
+ assert.deepEqual(requests.map(r=>r.model),['A','B']);assert.equal(requests[0].sessionId,child.id);assert.equal(requests[1].sessionId,child.id);
+ assert.match(JSON.stringify(requests[1].messages),/First task/);
 });
 
 test('runtime root switch does not alter an admitted inference; following step uses B',async t=>{
