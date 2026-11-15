@@ -1,460 +1,84 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { Context } from '@deepseek-ai/cordis';
-import AgentLoop from '@deepseek-ai/dsh-agent-loop';
-import WorkingDirectory from '@deepseek-ai/dsh-working-directory';
-import FsLocal from '@deepseek-ai/dsh-fs-local';
-import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit';
-import * as Persistence from '@deepseek-ai/dsh-session-persistence-jsonl';
-import Subagents from '@deepseek-ai/dsh-subagent';
-import * as Spawn from '@deepseek-ai/dsh-subagent-spawn-in-process';
-import * as Fork from '@deepseek-ai/dsh-subagent-fork-in-process';
-import Teams from '@deepseek-ai/dsh-experimental-agent-team';
-import { SessionId } from '@deepseek-ai/dsh-session';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
-import { MockAdapter, textResponse, toolCallResponse } from './adapter.mjs';
-import { TestSessionQuery } from './query.mjs';
-import * as Router from '../lib/index.js';
-import { defineTool } from '@deepseek-ai/dsh-tools';
-import { jsonOutput } from '../lib/tools/schemas.js';
-import * as TeamTools from '@deepseek-ai/dsh-experimental-tool-agent-team';
-import Loader from '@deepseek-ai/cordis-plugin-loader';
-import { assertCompatibility } from '../lib/compatibility/dsh-0.2.2-rc.1.js';
-import { routingProjection } from '../lib/routing/state.js';
-// Recreate the old checkpoint shape to test replay across the projection version change.
-function legacyProjection() {
- return { ...routingProjection, init:(header,count)=>({ ...routingProjection.init(header,count), allowed:null }),
-   apply:(state,event)=>event.type==='subagent/model-selection-policy' && state.allowed===null
-     ? { ...state, allowed:event.data.allowedModels } : routingProjection.apply(state,event) };
-}
-const signal = new AbortController().signal;
-async function setup(t, script, options = {}) {
-  const ctx = new Context();
-  t.after(() => ctx.fiber.dispose());
-  await mountAgentLoopTestDependencies(ctx);
-  const storageRoot = options.root ?? await mkdtemp(join(tmpdir(), 'router-test-'));
-  await ctx.plugin(Persistence, { root: storageRoot });
-  await ctx.plugin(TestSessionQuery);
-  await ctx.plugin(AgentLoop, { agents: [] });
-  await ctx.plugin(FsLocal);
-  await ctx.plugin(WorkingDirectory, {defaultDirectory:storageRoot});
-  await ctx.plugin(Subagents);
-  await ctx.plugin(Spawn, { providerName: 'spawn' });
-  await ctx.plugin(Fork, { providerName: 'fork' });
-  await ctx.plugin(Teams);
-  const adapter = new MockAdapter(script);
-  adapter.resolveModel = async (provider, model) => {
-    if (!['A','B','C'].includes(model)) throw new Error('Unknown model "' + model + '" for provider "' + provider + '"');
-    return {provider,id:model,name:model,reasoning:{efforts:[{id:'low',name:'Low'},{id:'high',name:'High'}],defaultEffort:'low'}};
-  };
-  adapter.listModels = async provider => (provider === 'one' ? ['A', 'C'] : ['B']).map(id => ({provider, id, name:id}));
-  const secondAdapter = new MockAdapter([]);
-  secondAdapter.resolveModel = adapter.resolveModel;
-  secondAdapter.listModels = adapter.listModels;
-  secondAdapter.stream = async function* (request) { secondAdapter.requests.push(request); yield* adapter.stream(request); };
-  ctx.llm.registerAdapter(['one'], adapter);
-  ctx.llm.registerAdapter(['two'], secondAdapter);
-  ctx.on('agent/pre-step', async (payload,next) => payload.agent.id === 'lead' && !options.driveLead ? {kind:'reject'} : next(), {prepend:true});
-  if (options.beforeRouter) await options.beforeRouter(ctx);
-  if (!options.noModelSettings) ctx.provide('subagentModelSelection', { current: () => ({enabled:options.enabled !== false,allowedModels:[{provider:'one',model:'A'},{provider:'two',model:'B'},{provider:'one',model:'C'}]}) });
-  let routerFiber;
-  if (options.loader) {
-    await ctx.plugin(Loader,{baseUrl:new URL('../',import.meta.url).href});
-    if(options.reverseLoader)await ctx.loader.create({name:'@deepseek-ai/dsh-experimental-tool-agent-team',config:{}});
-    const routerId=await ctx.loader.create({name:'./lib/index.js'});
-    if(!options.reverseLoader)await ctx.loader.create({name:'@deepseek-ai/dsh-experimental-tool-agent-team',config:{}});
-    await ctx.loader.await();
-    routerFiber=ctx.loader.resolve(routerId).fiber;
-    assert.equal(routerFiber.state,2);
-    for(const entry of ctx.loader.entries())assert.equal(entry.fiber?.state,2);
-  } else if (!options.noRouter) routerFiber = await ctx.plugin(Router, options.routerConfig ?? {});
-  const lead = options.resume ? (await ctx.agents.resume({resumeSessionId:SessionId('lead'),agentOptions:{provider:'one',model:'A'}})).agent : await ctx.agentLoop.create(SessionId('lead'), {provider:'one',model:'A'});
-  return {ctx,lead,adapter,secondAdapter,storageRoot,routerFiber};
-}
-async function call(ctx, agent, name, args) { const def = ctx.tools.get(name,agent); assert.ok(def,'tool '+name); return def.execute(args,{agent,signal}); }
-async function until(predicate) { const deadline=Date.now()+5000; while(!predicate()){if(Date.now()>deadline)throw new Error('Timed out');await new Promise(r=>setTimeout(r,10));} }
-async function spawn(ctx,lead,args={}) { const result = await call(ctx,lead,'spawn_teammate',{name:'backend',description:'Implementation',prompt:'Work',...args}); return { ...result, member: ctx.agentTeams.listMembers(lead).find(row=>row.name===result.member.target) }; }
-test('explicit spawn reaches actual provider B; default spawn inherits A', async t => {
- const {ctx,lead,adapter,secondAdapter}=await setup(t,[textResponse('B'),textResponse('A')]);
- const first=await spawn(ctx,lead,{provider:'two',model:'B',reasoning_effort:'high'});
- await until(()=>adapter.requests.length>=1).catch(error=>{console.log('REQUESTS',adapter.requests,'MEMBERS',ctx.agentTeams.listMembers(lead));throw error;});
- await until(()=>!ctx.agents.get(first.member.id));
- assert.equal(adapter.requests[0].provider,'two'); assert.equal(adapter.requests[0].model,'B');
- assert.equal(secondAdapter.requests.length,1);assert.equal(secondAdapter.requests[0].reasoningEffort,'high');
- await spawn(ctx,lead,{name:'inherited'}); await until(()=>adapter.requests.length===2);
- assert.equal(adapter.requests[1].provider,'one'); assert.equal(adapter.requests[1].model,'A');
+import { textResponse, toolCallResponse } from './adapter.mjs';
+import { setup, until, signal } from './rc2-fixture.mjs';
+
+test('native spawn chooses an authorized route and keeps standard tools available',async t=>{
+ const f=await setup(t,[textResponse('chosen B')]);const child=await f.spawn({provider:'two',model:'B',reasoning_effort:'high'});
+ await until(()=>f.adapter.requests.length===1);assert.equal(f.adapter.requests[0].model,'B');assert.equal(f.adapter.requests[0].reasoningEffort,'high');
+ assert.ok(f.ctx.tools.get('subagent',f.lead));assert.ok(f.ctx.tools.get('subagent_fork',f.lead));assert.equal(await f.ctx.subagents.resolveName(f.lead,'worker',signal),child.id);
 });
-test('self switch applies on next actual inference; same session and cold resume preserve B', async t => {
- const {ctx,lead,adapter}=await setup(t,[toolCallResponse('switch-1','switch_model',{provider:'two',model:'B'}),textResponse('B next'),textResponse('B resumed')]);
- const started=await spawn(ctx,lead);
- await until(()=>adapter.requests.length===2 && !ctx.agents.get(started.member.id));
- assert.deepEqual(adapter.requests.slice(0,2).map(r=>r.model),['A','B']);
- const handle=await ctx.sessionPersistence.open(started.member.id,'read');
- const events=(await handle.read()).events;await handle.close();
- assert.ok(events.some(e=>e.type==='model/selection'));
- assert.equal(ctx.agentTeams.listMembers(lead)[1].id,started.member.id);
- await ctx.agentTeams.sendMessage(lead,{target:'backend',content:[{type:'text',text:'Continue, retaining prior work'}],signal});
- await until(()=>adapter.requests.length===3 && !ctx.agents.get(started.member.id));
- assert.equal(adapter.requests[2].model,'B');
- assert.ok(JSON.stringify(adapter.requests[2]).includes('B next'));
+
+test('native fork also accepts an explicit authorized model',async t=>{
+ const f=await setup(t,[textResponse('fork B')]);const child=await f.spawn({fork:true,provider:'two',model:'B'});
+ await until(()=>f.adapter.requests.some(r=>r.sessionId===child.id));assert.equal(f.adapter.requests.find(r=>r.sessionId===child.id).model,'B');
 });
-test('multiple switches A → B → C → A preserve one session and full history', async t => {
- const {ctx,lead,adapter}=await setup(t,[toolCallResponse('s1','switch_model',{provider:'two',model:'B'}),toolCallResponse('s2','switch_model',{provider:'one',model:'C'}),toolCallResponse('s3','switch_model',{provider:'one',model:'A'}),textResponse('done')]);
- const started=await spawn(ctx,lead);
- await until(()=>adapter.requests.length===4 && !ctx.agents.get(started.member.id));
- assert.deepEqual(adapter.requests.map(r=>[r.provider,r.model]),[['one','A'],['two','B'],['one','C'],['one','A']]);
- assert.ok(adapter.requests.every(r=>r.sessionId===started.member.id));
- assert.equal(ctx.agentTeams.listMembers(lead).length,2);
- assert.ok(JSON.stringify(adapter.requests[3].messages).includes('switch_model'));
+
+test('self-switch changes actual next inference, retaining session and prior history',async t=>{
+ const f=await setup(t,[toolCallResponse('switch','switch_model',{provider:'two',model:'B'}),textResponse('B after switch')]);
+ const child=await f.spawn();await until(()=>f.adapter.requests.length===2);
+ assert.deepEqual(f.adapter.requests.map(r=>r.model),['A','B']);assert.equal(f.adapter.requests[0].sessionId,child.id);assert.equal(f.adapter.requests[1].sessionId,child.id);
+ assert.match(JSON.stringify(f.adapter.requests[1].messages),/First task/);
 });
-test('same route is a no-op, invalid effort and unknown model do not commit', async t => {
- const {ctx,lead,adapter}=await setup(t,[toolCallResponse('same','switch_model',{provider:'one',model:'A'}),toolCallResponse('bad-effort','switch_model',{provider:'two',model:'B',reasoning_effort:'impossible'}),toolCallResponse('bad-model','switch_model',{provider:'one',model:'nonexistent'}),textResponse('done')]);
- const started=await spawn(ctx,lead);
- await until(()=>adapter.requests.length===4 && !ctx.agents.get(started.member.id));
- assert.ok(adapter.requests.every(r=>r.model==='A'));
- const handle=await ctx.sessionPersistence.open(started.member.id,'read');const events=(await handle.read()).events;await handle.close();
- assert.equal(events.filter(e=>e.type==='model/selection').length,0);
+
+test('runtime root switch does not alter an admitted inference; following step uses B',async t=>{
+ const f=await setup(t,['hang',textResponse('settled notice'),textResponse('new route'),textResponse('done notice')]);const child=await f.spawn();await until(()=>f.adapter.requests.length===1);
+ const changed=await f.call(f.lead,'switch_teammate_model',{teammate:'worker',provider:'two',model:'B'});
+ assert.equal(changed.next.model,'B');assert.equal(f.adapter.requests.length,1);assert.equal(f.adapter.requests[0].model,'A');
+ child.agent.cancel({kind:'user'});await until(()=>child.agent.status==='idle');
+ await f.ctx.subagents.sendMessage(f.lead,child.id,[{type:'text',text:'Continue'}],{signal});
+ await until(()=>f.adapter.requests.filter(r=>r.sessionId===child.id).length===2);const requests=f.adapter.requests.filter(r=>r.sessionId===child.id);assert.equal(requests[1].model,'B');
 });
-test('model discovery reports live catalogs and exact runtime metadata', async t => {
- const {ctx,lead}=await setup(t,[]);
- const result=await call(ctx,lead,'list_models',{});
- assert.equal(result.routes.length,3);assert.ok(result.routes.every(r=>r.available && r.metadata.reasoning.defaultEffort==='low'));
- await assert.rejects(call(ctx,lead,'list_models',{provider:'unregistered'}),/Unknown provider/);
+
+test('invalid/unapproved routes and invalid effort never change selection',async t=>{
+ const f=await setup(t,['hang']);const child=await f.spawn();await until(()=>f.adapter.requests.length===1);
+ for(const args of [{provider:'two',model:'C'},{provider:'two',model:'B',reasoning_effort:'invalid'}]){
+  const result=await f.dispatch(f.lead,'switch_teammate_model',{teammate:'worker',...args});assert.equal(result.isError,true);
+ }
+ assert.equal(child.agent.model.current().model,'A');
+ const denied=await f.dispatch(f.lead,'switch_teammate_model',{teammate:'not-a-member',provider:'two',model:'B'});assert.equal(denied.isError,true);
 });
-test('live catalog changes and exact unlisted routes never depend on Host allowlists', async t => {
- const {ctx,lead,adapter}=await setup(t,[],{enabled:false});
- let catalog=['A'];
- adapter.listModels=async provider=>catalog.map(id=>({provider,id,name:id}));
- assert.deepEqual((await call(ctx,lead,'list_models',{provider:'one'})).routes.map(r=>r.model),['A']);
- catalog=['A','C'];
- assert.deepEqual((await call(ctx,lead,'list_models',{provider:'one'})).routes.map(r=>r.model),['A','C']);
- catalog=['A'];
- const exact=await call(ctx,lead,'list_models',{provider:'one',model:'C'});
- assert.equal(exact.routes[0].available,true);assert.equal(exact.routes[0].metadata.id,'C');
- const missing=await call(ctx,lead,'list_models',{provider:'one',model:'unknown'});
- assert.equal(missing.routes[0].available,false);assert.match(missing.routes[0].reason,/Unknown model/);
+
+test('Session without route opt-in rejects foreign creation and runtime routes',async t=>{
+ const f=await setup(t,[],{authorized:false});
+ const denied=await f.dispatch(f.lead,'subagent',{name:'denied',description:'No permission',prompt:'test',provider:'two',model:'B'});
+ assert.equal(denied.isError,true);assert.equal(f.adapter.requests.length,0);
+ const switched=await f.dispatch(f.lead,'switch_model',{provider:'two',model:'B'});assert.equal(switched.isError,true);assert.equal(f.lead.model.current().model,'A');
+ const discovery=await f.call(f.lead,'list_models',{provider:'two',model:'B'});assert.deepEqual(discovery.routes,[]);
 });
-test('routes absent from a non-empty Host allowlist can be spawned and switched',async t=>{
- const {ctx,lead,adapter,secondAdapter}=await setup(t,[textResponse('spawned C'),toolCallResponse('off-list','switch_model',{provider:'two',model:'C'}),textResponse('switched C')]);
- secondAdapter.listModels=async provider=>[{provider,id:'B',name:'B'}]; // C is not advertised either.
- // The Host allowlist has one/A, one/C and two/B; two/C is intentionally absent.
- assert.deepEqual((await call(ctx,lead,'list_models',{provider:'two'})).routes.map(r=>r.model),['B']);
- const offList=await spawn(ctx,lead,{provider:'two',model:'C'});
- await until(()=>adapter.requests.length===1&&!ctx.agents.get(offList.member.id));
- const switched=await spawn(ctx,lead,{name:'switcher'});
- await until(()=>adapter.requests.length===3&&!ctx.agents.get(switched.member.id));
- assert.deepEqual(adapter.requests.map(r=>[r.provider,r.model]),[['two','C'],['one','A'],['two','C']]);
+
+test('aliases are durable receipts, preserve targets, reset and reject child authority',async t=>{
+ const f=await setup(t,['hang']);const child=await f.spawn();await until(()=>f.adapter.requests.length===1);
+ const named=await f.call(f.lead,'set_teammate_display_name',{target:'worker',display_name:'Revisão Ágil'},{record:true});assert.equal(named.session,child.id);
+ assert.equal(f.ctx.sessionProjections.snapshot(f.lead.session).values.agentTeamDisplayNames[child.id],'Revisão Ágil');
+ assert.equal(await f.ctx.subagents.resolveName(f.lead,'worker',signal),child.id);
+ const denied=await f.dispatch(child.agent,'set_teammate_display_name',{target:'lead',display_name:'Denied'},{record:true});assert.equal(denied.isError,true);
+ const reset=await f.call(f.lead,'set_teammate_display_name',{target:'worker',display_name:null},{record:true});assert.equal(reset.display_name,'worker');assert.equal(f.ctx.sessionProjections.snapshot(f.lead.session).values.agentTeamDisplayNames[child.id],undefined);
 });
-test('catalog failure is reported while exact lookup and other providers still work', async t => {
- const {ctx,lead,adapter}=await setup(t,[]);
- adapter.listModels=async()=>{throw new Error('catalog offline');};
- const all=await call(ctx,lead,'list_models',{});
- assert.match(all.message,/one: catalog offline/);assert.deepEqual(all.routes.map(r=>r.model),['B']);
- const exact=await call(ctx,lead,'list_models',{provider:'one',model:'C'});
- assert.equal(exact.routes[0].available,true);assert.equal(exact.routes[0].metadata.id,'C');
+
+test('runtime aliases and model route survive complete host restart',async t=>{
+ const f=await setup(t,['hang',toolCallResponse('persist-alias','set_teammate_display_name',{target:'worker',display_name:'Persisted alias'}),textResponse('alias saved')]);const child=await f.spawn();await until(()=>f.adapter.requests.length===1);
+ f.lead.followup(createUserMessage({content:[{type:'text',text:'Name worker'}],source:{kind:'user'}}));
+ await f.lead.whenIdle();
+ assert.equal(f.ctx.sessionProjections.snapshot(f.lead.session).values.agentTeamDisplayNames[child.id],'Persisted alias');
+ await f.call(f.lead,'switch_teammate_model',{teammate:'worker',provider:'two',model:'B'});
+ await f.ctx.sessions.flush(f.lead.session);await f.ctx.sessions.flush(child.agent.session);await f.ctx.fiber.dispose();
+ const second=await setup(t,[textResponse('resumed history'),textResponse('settled notice')],{root:f.root,resume:true});
+ assert.equal(second.ctx.sessionProjections.snapshot(second.lead.session).values.agentTeamDisplayNames[child.id],'Persisted alias');
+ await second.ctx.subagents.sendMessage(second.lead,child.id,[{type:'text',text:'Resume same child'}],{signal});
+ await until(()=>second.adapter.requests.length>=1);assert.equal(second.adapter.requests[0].model,'B');assert.equal(second.adapter.requests[0].sessionId,child.id);assert.match(JSON.stringify(second.adapter.requests[0].messages),/First task/);
 });
-test('Lead switch waits for next inference, duplicates are no-ops, Team state survives', async t => {
- const {ctx,lead,adapter}=await setup(t,[toolCallResponse('inspect','get_current_model',{}),textResponse('new route')]);
- let release;const blocked=new Promise(resolve=>{release=resolve;});let entered=false;
- const original=adapter.stream.bind(adapter);
- adapter.stream=async function* (options) { for await(const chunk of original(options)){if(!entered){entered=true;await blocked;}yield chunk;} };
- const started=await spawn(ctx,lead);await until(()=>entered);
- const live=ctx.agents.get(started.member.id);assert.ok(live);
- const task=await ctx.agentTeams.createTask(lead,{subject:'Implementation',description:'Retain owner'});
- await ctx.agentTeams.updateTask(live,{taskId:task.id,expectedRevision:task.revision,action:'claim'});
- const before=ctx.agentTeams.listTasks(lead);
- const switched=await call(ctx,lead,'switch_teammate_model',{teammate:'backend',provider:'two',model:'B'});
- assert.equal(switched.current.model,'A');assert.equal(switched.pending.model,'B');
- const duplicate=await call(ctx,lead,'switch_teammate_model',{teammate:'backend',provider:'two',model:'B'});
- assert.equal(duplicate.changed,false);assert.equal(ctx.agents.get(live.id),live);
- await assert.rejects(call(ctx,live,'switch_teammate_model',{teammate:'backend',provider:'one',model:'C'}),/Only the Team Lead/);
- const receipt=await ctx.agentTeams.sendMessage(lead,{target:'backend',content:[{type:'text',text:'mailbox context retained'}],signal});
- assert.ok(receipt.messageId);assert.deepEqual(ctx.agentTeams.listTasks(lead),before);
- release();await until(()=>adapter.requests.length===2 && !ctx.agents.get(live.id));
- assert.deepEqual(adapter.requests.map(r=>r.model),['A','B']);
- assert.equal(adapter.requests[0].sessionId,adapter.requests[1].sessionId);
- assert.ok(JSON.stringify(adapter.requests[1].messages).includes('mailbox context retained'));
- assert.deepEqual(ctx.agentTeams.listTasks(lead),before);
- await assert.rejects(call(ctx,lead,'switch_teammate_model',{teammate:'backend',provider:'one',model:'C'}),/cold/);
-});
-test('unknown registered-route model fails adapter validation without changing inference', async t => {
- const {ctx,lead,adapter,secondAdapter}=await setup(t,[toolCallResponse('invalid','switch_model',{provider:'two',model:'B'}),textResponse('still A')]);
- const original=adapter.resolveModel;
- adapter.resolveModel=async (provider,model)=>{if(model==='B')throw new Error('Unknown model B');return original(provider,model);};
- secondAdapter.resolveModel=adapter.resolveModel;
- const started=await spawn(ctx,lead);await until(()=>adapter.requests.length===2 && !ctx.agents.get(started.member.id));
- assert.ok(adapter.requests.every(r=>r.model==='A'));
-});
-test('full runtime restart restores selection and Team identity from native persisted events', async t => {
- const first=await setup(t,[toolCallResponse('s1','switch_model',{provider:'two',model:'B'}),textResponse('Before restart')]);
- const started=await spawn(first.ctx,first.lead);
- await until(()=>first.adapter.requests.length===2 && !first.ctx.agents.get(started.member.id));
- await first.ctx.sessions.flush(first.lead.session);await first.ctx.fiber.dispose();
- const second=await setup(t,[textResponse('After restart')],{root:first.storageRoot,resume:true});
- await second.ctx.agentTeams.sendMessage(second.lead,{target:'backend',content:[{type:'text',text:'After process restart'}],signal});
- await until(()=>second.adapter.requests.length===1 && !second.ctx.agents.get(started.member.id));
- assert.equal(second.adapter.requests[0].provider,'two');assert.equal(second.adapter.requests[0].model,'B');
- assert.ok(JSON.stringify(second.adapter.requests[0].messages).includes('Before restart'));
- assert.equal(second.ctx.agentTeams.listMembers(second.lead)[1].id,started.member.id);
-});
-test('fork spawn overrides route without inheriting Lead model-selection intent', async t => {
- const {ctx,lead,adapter}=await setup(t,[textResponse('forked')]);
- lead.session.append('model/selection',{provider:'one',model:'C'});
- const started=await spawn(ctx,lead,{context:'fork',provider:'two',model:'B'});
- await until(()=>adapter.requests.length===1 && !ctx.agents.get(started.member.id));
- assert.equal(adapter.requests[0].model,'B');assert.equal(adapter.requests[0].provider,'two');
-});
-test('Team route selection works when native subagent model selection is disabled', async t => {
- const {ctx,lead,adapter}=await setup(t,[textResponse('selected'),textResponse('inherit')],{enabled:false});
- assert.equal((await call(ctx,lead,'list_models',{})).enabled,true);
- const first=await spawn(ctx,lead,{provider:'two',model:'B'});await until(()=>adapter.requests.length===1 && !ctx.agents.get(first.member.id));
- const second=await spawn(ctx,lead,{name:'inherited'});await until(()=>adapter.requests.length===2 && !ctx.agents.get(second.member.id));
- assert.deepEqual(adapter.requests.map(r=>r.model),['B','A']);
-});
-test('Team discovery and explicit spawning work without the native settings service', async t => {
- const {ctx,lead,adapter}=await setup(t,[textResponse('independent')],{noModelSettings:true});
- assert.equal((await call(ctx,lead,'list_models',{provider:'two',model:'B'})).routes[0].available,true);
- const started=await spawn(ctx,lead,{provider:'two',model:'B'});
- await until(()=>adapter.requests.length===1&&!ctx.agents.get(started.member.id));
- assert.equal(adapter.requests[0].model,'B');
-});
-test('missing compatibility API fails clearly', () => {
- assert.throws(()=>assertCompatibility({}),/Missing DSH API/);
-});
-test('invalid and aborted lead switches leave actual current route intact', async t => {
- const {ctx,lead,adapter}=await setup(t,['hang']);
- const started=await spawn(ctx,lead);await until(()=>adapter.requests.length===1);
- const live=ctx.agents.get(started.member.id);
- await assert.rejects(call(ctx,live,'switch_model',{provider:'two',model:'B',reasoning_effort:'unsupported'}),/effort/);
- const aborted=new AbortController();aborted.abort(new Error('cancelled'));
- await assert.rejects(ctx.tools.get('switch_model',live).execute({provider:'two',model:'B'},{agent:live,signal:aborted.signal}),/cancelled/);
- assert.equal((await call(ctx,live,'get_current_model',{})).current.model,'A');
- assert.equal((await call(ctx,live,'get_current_model',{})).pending,null);
- assert.equal(live.session.snapshotEvents().filter(e=>e.type==='model/selection').length,0);
- live.cancel({kind:'user'});await until(()=>!ctx.agents.get(live.id));
-});
-test('provider removed at runtime is unavailable and rejects switch without route mutation', async t => {
- const {ctx,lead,adapter}=await setup(t,['hang']);
- const started=await spawn(ctx,lead);await until(()=>adapter.requests.length===1);
- const live=ctx.agents.get(started.member.id);const original=ctx.llm.listProviders.bind(ctx.llm);
- ctx.llm.listProviders=()=>original().filter(p=>p.id!=='two');
- await assert.rejects(call(ctx,live,'list_models',{provider:'two'}),/Unknown provider/);
- await assert.rejects(call(ctx,live,'switch_model',{provider:'two',model:'B'}),/Unknown provider/);
- assert.equal((await call(ctx,live,'get_current_model',{})).pending,null);
- live.cancel({kind:'user'});await until(()=>!ctx.agents.get(live.id));
-});
-test('concurrent spawn routes are isolated and tool schemas expose routing fields', async t => {
- const {ctx,lead,adapter}=await setup(t,[textResponse('first'),textResponse('second')]);
- const schema=ctx.tools.schemas(lead).find(tool=>tool.name==='spawn_teammate');
- assert.ok(schema.parameters.properties.provider);assert.ok(schema.parameters.properties.model);
- const [one,two]=await Promise.all([spawn(ctx,lead,{name:'worker-one',provider:'two',model:'B'}),spawn(ctx,lead,{name:'worker-two',provider:'one',model:'C'})]);
- await until(()=>adapter.requests.length===2 && !ctx.agents.get(one.member.id) && !ctx.agents.get(two.member.id));
- assert.equal(adapter.requests.find(r=>r.sessionId===one.member.id).model,'B');
- assert.equal(adapter.requests.find(r=>r.sessionId===two.member.id).model,'C');
-});
-test('switch after assembly snapshot leaves admitted inference A; following invocation uses B', async t => {
- const {ctx,lead,adapter}=await setup(t,[toolCallResponse('info','get_current_model',{}),textResponse('B')]);
- let release;const blocked=new Promise(r=>{release=r;});let captured;
- ctx.on('agent/created',({agent})=>{
-   if(agent.id==='lead')return;
-   agent.ctx.on('system-prompt/assemble',async (_assembly,_context,next)=>{
-     if(!captured){captured=agent;await blocked;}
-     return next();
-   });
- });
- const startedPromise=spawn(ctx,lead);
- await until(()=>captured!==undefined);
- const result=await call(ctx,lead,'switch_teammate_model',{teammate:'backend',provider:'two',model:'B'});
- assert.equal(result.next.model,'B');release();
- const started=await startedPromise;
- await until(()=>adapter.requests.length===2 && !ctx.agents.get(started.member.id));
- assert.deepEqual(adapter.requests.map(r=>r.model),['A','B']);
-});
-test('plugin disposal removes routing tools and does not destroy Lead identity', async t => {
- const {ctx,lead,routerFiber}=await setup(t,[]);
- assert.ok(ctx.tools.get('switch_model',lead));
- await routerFiber.dispose();
- assert.equal(ctx.agents.get(lead.id),lead);
- assert.equal(ctx.tools.get('switch_model',lead),undefined);
- assert.equal(ctx.tools.get('spawn_teammate',lead),undefined);
-});
-test('standalone Team Tools re-enabled after router does not duplicate policy or block sessions', async t => {
- const {ctx,lead,adapter,routerFiber}=await setup(t,[toolCallResponse('update','switch_model',{provider:'two',model:'B'}),textResponse('updated')]);
- const standalone=await ctx.plugin(TeamTools,{});
- const started=await spawn(ctx,lead);await until(()=>adapter.requests.length===2 && !ctx.agents.get(started.member.id));
- assert.deepEqual(adapter.requests.map(r=>r.model),['A','B']);
- await standalone.dispose();assert.ok(ctx.tools.get('spawn_teammate',lead));
- await routerFiber.dispose();assert.equal(ctx.tools.get('spawn_teammate',lead),undefined);
-});
-test('real Loader duplicate-enabled profile creates Lead and teammate, updates route, and toggles component', async t => {
- const {ctx,lead,adapter}=await setup(t,[toolCallResponse('switch-loader','switch_model',{provider:'two',model:'B'}),textResponse('B after Loader startup')],{loader:true});
- const started=await spawn(ctx,lead);
- await until(()=>adapter.requests.length===2 && !ctx.agents.get(started.member.id));
- assert.deepEqual(adapter.requests.map(request=>request.model),['A','B']);
- const standalone=[...ctx.loader.entries()].find(entry=>entry.options.name==='@deepseek-ai/dsh-experimental-tool-agent-team');
- await ctx.loader.update(standalone.id,{disabled:true});await ctx.loader.await();
- assert.ok(ctx.tools.get('spawn_teammate',lead));
- await ctx.loader.update(standalone.id,{disabled:false});await ctx.loader.await();
- assert.equal(standalone.fiber.state,2);assert.ok(ctx.tools.get('spawn_teammate',lead));
- const resumed=await ctx.agents.create({sessionId:SessionId('second-root'),agentOptions:{provider:'one',model:'A'}});
- assert.ok(ctx.tools.get('spawn_teammate',resumed.agent));await resumed.dispose();
-});
-test('router refuses unsafe hot-install over existing tools without breaking existing or new sessions', async t => {
- const {ctx,lead,adapter}=await setup(t,[textResponse('original tools still work')],{noRouter:true});
- await ctx.plugin(TeamTools,{});
- await assert.rejects(async () => { await ctx.plugin(Router); },/Team tools are already mounted/);
- assert.equal(ctx.agents.get(lead.id),lead);assert.equal(ctx.tools.get('switch_model',lead),undefined);
- const started=await spawn(ctx,lead);await until(()=>adapter.requests.length===1 && !ctx.agents.get(started.member.id));
- assert.equal(adapter.requests[0].model,'A');
- const other=await ctx.agents.create({sessionId:SessionId('still-working'),agentOptions:{provider:'one',model:'A'}});
- assert.ok(ctx.tools.get('spawn_teammate',other.agent));await other.dispose();
-});
-test('Loader original-first order before sessions does not double-register Team tools', async t => {
- const {ctx,lead,adapter}=await setup(t,[toolCallResponse('reverse-switch','switch_model',{provider:'two',model:'B'}),textResponse('switched')],{loader:true,reverseLoader:true});
- const started=await spawn(ctx,lead);await until(()=>adapter.requests.length===2 && !ctx.agents.get(started.member.id));
- assert.deepEqual(adapter.requests.map(request=>request.model),['A','B']);
- for(const entry of ctx.loader.entries())assert.equal(entry.fiber.state,2);
-});
-test('display name changes UI projection, persists across restart, and leaves target identity intact', async t => {
- const first=await setup(t,[toolCallResponse('alias','set_teammate_display_name',{target:'lead',display_name:'Líder — Revisão Ágil'}),textResponse('renamed')],{driveLead:true});
- first.lead.followup(createUserMessage({content:[{type:'text',text:'rename yourself visually'}],source:{kind:'user'}}));await first.lead.whenIdle();
- const started={member:{id:first.lead.id}};
- assert.equal(first.ctx.sessionProjections.snapshot(first.lead.session).values.agentTeamDisplayNames[started.member.id],'Líder — Revisão Ágil');
- assert.equal(first.ctx.agentTeams.listMembers(first.lead)[0].name,'lead');
- await first.ctx.sessions.flush(first.lead.session);await first.ctx.fiber.dispose();
- const second=await setup(t,[],{root:first.storageRoot,resume:true});
- assert.equal(second.ctx.sessionProjections.snapshot(second.lead.session).values.agentTeamDisplayNames[started.member.id],'Líder — Revisão Ágil');
- const reset=await call(second.ctx,second.lead,'set_teammate_display_name',{target:'lead',display_name:null});assert.equal(reset.display_name,'lead');
- await assert.rejects(call(second.ctx,second.lead,'set_teammate_display_name',{target:'lead',display_name:'  '}),/1–120/);
-});
-test('Lead names a cold teammate without changing tasks and teammate cannot rename members', async t => {
- const {ctx,lead,adapter}=await setup(t,['hang']);
- const started=await spawn(ctx,lead);await until(()=>adapter.requests.length===1);
- const live=ctx.agents.get(started.member.id);
- const task=await ctx.agentTeams.createTask(lead,{subject:'Own me',description:'Preserve ownership'});
- await ctx.agentTeams.updateTask(live,{taskId:task.id,expectedRevision:task.revision,action:'claim'});
- const before=ctx.agentTeams.listTasks(lead);
- await assert.rejects(call(ctx,live,'set_teammate_display_name',{target:'backend',display_name:'ADMIN'}),/Only the Team Lead/);
- live.cancel({kind:'user'});await until(()=>!ctx.agents.get(live.id));
- const renamed=await call(ctx,lead,'set_teammate_display_name',{target:'backend',display_name:'ADMIN — Ágil'});
- assert.equal(renamed.session,started.member.id);assert.equal(renamed.target,'backend');
- assert.deepEqual(ctx.agentTeams.listTasks(lead),before);assert.equal(ctx.agentTeams.listMembers(lead)[1].name,'backend');
- await assert.rejects(call(ctx,lead,'set_teammate_display_name',{target:'missing',display_name:'Unknown'}),/not found/);
-});
-test('legacy frozen policies do not block spawning or switching after a restart',async t=>{
- const first=await setup(t,[textResponse('history before upgrade')]);
- first.lead.session.append('subagent/model-selection-policy',{allowedModels:[{provider:'one',model:'A'}]});
- first.ctx.on('agent/created',({agent})=>{
-   if(agent.id!=='lead') agent.session.append('subagent/model-selection-policy',{allowedModels:[{provider:'one',model:'A'}]});
- });
- const started=await spawn(first.ctx,first.lead);
- await until(()=>first.adapter.requests.length===1&&!first.ctx.agents.get(started.member.id));
- const oldChild=await first.ctx.sessionPersistence.open(started.member.id,'read');
- const childEvents=(await oldChild.read()).events;await oldChild.close();
- assert.ok(childEvents.some(e=>e.type==='subagent/model-selection-policy' && e.data.allowedModels.length===1 && e.data.allowedModels[0].model==='A'));
- await first.ctx.sessions.flush(first.lead.session);await first.ctx.fiber.dispose();
- const second=await setup(t,[toolCallResponse('switch-legacy','switch_model',{provider:'two',model:'B'}),textResponse('after switch'),textResponse('explicit spawn')],{root:first.storageRoot,resume:true,enabled:false});
- assert.equal((await call(second.ctx,second.lead,'list_models',{provider:'two',model:'B'})).routes[0].available,true);
- await second.ctx.agentTeams.sendMessage(second.lead,{target:'backend',content:[{type:'text',text:'Continue the history'}],signal});
- await until(()=>second.adapter.requests.length===2&&!second.ctx.agents.get(started.member.id));
- assert.deepEqual(second.adapter.requests.map(r=>r.model),['A','B']);
- assert.ok(JSON.stringify(second.adapter.requests[1].messages).includes('history before upgrade'));
- const other=await spawn(second.ctx,second.lead,{name:'new-worker',provider:'two',model:'B'});
- await until(()=>second.adapter.requests.length===3&&!second.ctx.agents.get(other.member.id));
- assert.equal(second.adapter.requests[2].model,'B');
- assert.equal(second.ctx.agentTeams.listMembers(second.lead).find(m=>m.name==='backend').id,started.member.id);
- assert.ok(second.lead.session.snapshotEvents().some(e=>e.type==='subagent/model-selection-policy'));
-});
-test('version-one checkpoints replay model selections without rewriting session history',async t=>{
- const first=await setup(t,[toolCallResponse('select-before-migration','switch_model',{provider:'two',model:'B'}),textResponse('version one history')],{
-   beforeRouter:ctx=>{
-     const {stateVersion:_stateVersion,...definition}=legacyProjection();
-     ctx.sessionProjections.register({...definition,stateVersion:1});
-   },
- });
- const started=await spawn(first.ctx,first.lead);
- await until(()=>first.adapter.requests.length===2&&!first.ctx.agents.get(started.member.id));
- const child=await first.ctx.agents.resume({resumeSessionId:SessionId(started.member.id)});
- const rows=first.ctx.sessionProjections.checkpoint(child.agent.session);
- assert.equal(rows.agentTeamModelRouter.ver,1);
- assert.equal(rows.agentTeamModelRouter.val.route.model,'B');
- const storedEvents=child.agent.session.snapshotEvents();
- const restored=first.ctx.sessionProjections.restore(rows,storedEvents,0,child.agent.session.header,0);
- assert.equal(restored.checkpoint.agentTeamModelRouter.ver,1);
- await child.dispose();
- await first.ctx.sessions.flush(first.lead.session);await first.ctx.fiber.dispose();
- const second=await setup(t,[textResponse('after migration')],{root:first.storageRoot,resume:true});
- assert.equal(second.ctx.sessionProjections.restoreFloor(rows),0);
- const migrated=second.ctx.sessionProjections.restore(rows,storedEvents,0,child.agent.session.header,0);
- assert.equal(migrated.checkpoint.agentTeamModelRouter.ver,2);
- assert.equal(migrated.checkpoint.agentTeamModelRouter.val.route.model,'B');
- assert.deepEqual(Object.keys(migrated.checkpoint.agentTeamModelRouter.val).sort(),['boundary','route']);
- await second.ctx.agentTeams.sendMessage(second.lead,{target:'backend',content:[{type:'text',text:'continue same session'}],signal});
- await until(()=>second.adapter.requests.length===1&&!second.ctx.agents.get(started.member.id));
- assert.equal(second.adapter.requests[0].model,'B');
- assert.ok(JSON.stringify(second.adapter.requests[0].messages).includes('version one history'));
- assert.equal(second.ctx.agentTeams.listMembers(second.lead).find(m=>m.name==='backend').id,started.member.id);
-});
-test('old Team without policy switches without session age restriction',async t=>{
- const first=await setup(t,[textResponse('legacy decision')],{enabled:false});
- const started=await spawn(first.ctx,first.lead);await until(()=>first.adapter.requests.length===1&&!first.ctx.agents.get(started.member.id));
- await first.ctx.sessions.flush(first.lead.session);await first.ctx.fiber.dispose();
- const second=await setup(t,[toolCallResponse('legacy-switch','switch_model',{provider:'two',model:'B'}),textResponse('legacy preserved')],{root:first.storageRoot,resume:true,enabled:true});
- assert.equal((await call(second.ctx,second.lead,'list_models',{})).enabled,true);
- await second.ctx.agentTeams.sendMessage(second.lead,{target:'backend',content:[{type:'text',text:'Continue legacy decision'}],signal});
- await until(()=>second.adapter.requests.length===2&&!second.ctx.agents.get(started.member.id));
- assert.equal(second.adapter.requests[1].model,'B');assert.ok(JSON.stringify(second.adapter.requests[1]).includes('legacy decision'));
- assert.equal(second.ctx.agentTeams.listMembers(second.lead)[1].id,started.member.id);
-});
-test('compact_teammate delegates exact native target/signal and preserves identity, tasks and route',async t=>{
- const {ctx,lead,adapter}=await setup(t,['hang']);const started=await spawn(ctx,lead);await until(()=>adapter.requests.length===1);
- const live=ctx.agents.get(started.member.id);const before=ctx.agentTeams.listMembers(lead);
- await assert.rejects(call(ctx,live,'compact_teammate',{target:'backend'}),/Only the Team Lead/);
- await assert.rejects(call(ctx,lead,'compact_teammate',{target:'lead'}),/Teammate not found/);
- await assert.rejects(call(ctx,lead,'compact_teammate',{target:'backend'}),/unavailable/);
- let received;ctx.provide('compaction',{compactNow:async (agent,requestSignal)=>{received={agent,requestSignal};return {summarySeq:123,shadowedSeqs:[1,2],shadowedTokenCount:500};}});
- const result=await call(ctx,lead,'compact_teammate',{target:'backend'});
- assert.equal(received.agent,live);assert.equal(received.requestSignal,signal);assert.equal(result.session,live.id);assert.equal(result.compacted,true);assert.equal(result.history_items,2);
- assert.deepEqual(ctx.agentTeams.listMembers(lead),before);assert.equal((await call(ctx,live,'get_current_model',{})).next.model,'A');
- ctx.get('compaction').compactNow=async()=>null;assert.equal((await call(ctx,lead,'compact_teammate',{target:'backend'})).compacted,false);
- ctx.get('compaction').compactNow=async agent=>agent.runMaintenance(async()=>null);
- await assert.rejects(call(ctx,lead,'compact_teammate',{target:'backend'}));
+
+test('idempotent switches do not duplicate events and default effort stays unpinned',async t=>{
+ const f=await setup(t,['hang']);const child=await f.spawn();await until(()=>f.adapter.requests.length===1);
+ const args={teammate:'worker',provider:'two',model:'B'};
+ const first=await f.call(f.lead,'switch_teammate_model',args);assert.equal(first.changed,true);
+ const count=child.agent.session.snapshotEvents().filter(e=>e.type==='model/selection').length;
+ const second=await f.call(f.lead,'switch_teammate_model',args);assert.equal(second.changed,false);
+ assert.equal(child.agent.session.snapshotEvents().filter(e=>e.type==='model/selection').length,count);
+ assert.equal(child.agent.model.current().reasoningEffort,undefined);
  const controller=new AbortController();controller.abort();
- await assert.rejects(ctx.tools.get('compact_teammate',lead).execute({target:'backend'},{agent:lead,signal:controller.signal}));
- live.cancel({kind:'user'});await until(()=>!ctx.agents.get(live.id));await assert.rejects(call(ctx,lead,'compact_teammate',{target:'backend'}),/cold/);
-});
-test('invalid selection is rejected before creating a roster member', async t => {
- const {ctx,lead,adapter}=await setup(t,[]);
- await assert.rejects(spawn(ctx,lead,{provider:'two',model:'nonexistent'}),/Cannot resolve model/);
- assert.equal(ctx.agentTeams.listMembers(lead).length,1);assert.equal(adapter.requests.length,0);
-});
-
-test('Team policy hides late global subagent tools, guards scoped bypass and restores on unload', async t => {
- const {ctx,lead,routerFiber,adapter}=await setup(t,[textResponse('team works')]);
- let executed=0;
- const tool=name=>defineTool({name,description:'test delegation',parameters:{},output:jsonOutput({type:'string'}),execute:async()=>{executed++;return 'not allowed';}});
- const releases=['subagent','subagent_fork','list_subagent_models'].map(name=>ctx.tools.register(tool(name)));
- for(const name of ['subagent','subagent_fork','list_subagent_models'])assert.equal(ctx.tools.get(name,lead),undefined);
- const scoped=lead.ctx.tools.register(tool('subagent'));
- const blocked=await ctx.tools.execute({calls:[{type:'tool-call',id:'blocked',name:'subagent',arguments:'{}'}],agent:lead,signal});
- assert.equal(executed,0);assert.equal(blocked.results.length,1);assert.equal(blocked.results[0].result.isError,true);assert.match(JSON.stringify(blocked.results[0].result),/disabled by the Team router/);
- const started=await spawn(ctx,lead);await until(()=>adapter.requests.length===1&&!ctx.agents.get(started.member.id));
- const prompt=JSON.stringify(adapter.requests[0]);
- assert.match(prompt,/ask the user which provider.model/i);
- assert.match(prompt,/switch_teammate_model/);
- assert.match(prompt,/reuse an appropriate existing member/i);
- scoped();await routerFiber.dispose();
- assert.ok(ctx.tools.get('subagent',lead));
- for(const release of releases)release();
-});
-
-test('operator can opt out of subagent blocking without losing model-choice guidance', async t => {
- const {ctx,lead}=await setup(t,[],{routerConfig:{disableSubagents:false}});
- let executed=false;
- const release=ctx.tools.register(defineTool({name:'subagent',description:'test',parameters:{},output:jsonOutput({type:'string'}),execute:async()=>{executed=true;return 'ok';}}));
- const batch=await ctx.tools.execute({calls:[{type:'tool-call',id:'allowed',name:'subagent',arguments:'{}'}],agent:lead,signal});
- assert.equal(executed,true);assert.equal(batch.results.length,1);release();
+ const aborted=await f.dispatch(f.lead,'switch_teammate_model',{teammate:'worker',provider:'one',model:'A'},{callSignal:controller.signal});assert.equal(aborted.isError,true);
+ assert.equal(child.agent.model.current().model,'B');
 });

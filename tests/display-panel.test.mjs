@@ -8,36 +8,109 @@ import * as ReactDOM from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots';
-test('built browser panel renders updated display alias and navigates with unchanged member ID', async () => {
- const dom=new JSDOM('<html><body><div id="root"></div></body></html>',{url:'http://localhost'});
- globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.HTMLElement=dom.window.HTMLElement;globalThis.getComputedStyle=dom.window.getComputedStyle;
- globalThis.IS_REACT_ACT_ENVIRONMENT=true;
- const slots=new SlotCore();const slotName='conversation.session.header.actions';
- slots.register({name:'root',children:{[slotName]:{kind:'list',scope:'root'}}},()=>null);
- const originalPanel=()=>null;slots.register({name:slotName,id:'agent-team'},originalPanel);
- let removeAlias;let register;const state={byId:{},projectionsBySession:{lead:{values:{agentTeam:{members:[{id:'lead',name:'lead',role:'lead',phase:'active'},{id:'child',name:'backend',role:'teammate',phase:'active'}],tasks:[]},agentTeamDisplayNames:{child:'Backend — Revisão'}}}}};
- const calls=[];const passthrough=props=>props.children;const empty=()=>null;
- const primitives=new Proxy({Tooltip:passthrough,useDismissOnOutsidePointer:()=>{},useAnchoredPosition:()=>({left:0,top:0})},{get:(object,key)=>object[key]??empty});
- const api={};
- let exports;
- vm.runInNewContext(await readFile(new URL('../lib/client.js',import.meta.url),'utf8'),{window:{__ModuleLoader__:{load:spec=>{exports=spec.factory((name)=>({react:React, 'react/jsx-runtime':jsx,'react-dom':ReactDOM,'@deepseek-ai/dsh-api-session-controller':api,'@deepseek-ai/dsh-client-ui-conversation':{useConversationContext:()=>({sessionId:'lead'})},'@deepseek-ai/dsh-client-ui-primitives':primitives,'@deepseek-ai/dsh-client-ui-workspace':{useSessionOpener:()=>((id)=>calls.push(id))}}[name]??{}));}}},document:dom.window.document, getComputedStyle:dom.window.getComputedStyle, setTimeout,clearTimeout});
- const localeNamespaces=new Set(['agent-team']);
- const ctx={locale:{register:namespace=>{if(localeNamespaces.has(namespace))throw new Error('locale namespace '+namespace+' already registered');localeNamespaces.add(namespace);return ()=>localeNamespaces.delete(namespace);}},sessions:{binding:()=>({session:{getSnapshot:()=>({})}}),retainInfo:()=>({getSnapshot:()=>({retainedBy:{mainView:1}})})},uiWorkspace:{openSession:arg=>calls.push(arg)},useSessions:selector=>selector(state),slots:{inject:(_name,callback)=>callback(),register:(spec,component)=>{register={...spec,component};removeAlias=slots.register(spec,component);return removeAlias;}},effect:callback=>callback()};
- exports.apply(ctx);
- assert.equal(register.priority,-10);
- assert.equal(slots.entries(slotName).length,2);
- assert.equal(slots.entriesOfSlot(slotName).length,1);
- assert.equal(slots.entriesOfSlot(slotName)[0].component,register.component);
- const root=createRoot(document.getElementById('root'));
- await React.act(async()=>{root.render(React.createElement(register.component,{sessionId:'lead',useSession:selector=>selector({}),useSessions:selector=>selector(state),useSessionStatus:()=>({status:'idle'}),openTeammate:(_root,id)=>calls.push(id),t:key=>key}));});
- await React.act(async()=>{document.querySelector('[data-team-action] button').click();});
- assert.ok(document.querySelector('[data-team-panel]').textContent.includes('Backend — Revisão'));
- state.projectionsBySession.lead.values.agentTeamDisplayNames={child:'ADMIN — Ágil'};
- await React.act(async()=>{root.render(React.createElement(register.component,{sessionId:'lead',useSession:selector=>selector({}),useSessions:selector=>selector(state),useSessionStatus:()=>({status:'idle'}),openTeammate:(_root,id)=>calls.push(id),t:key=>key}));});
- assert.ok(document.querySelector('[data-team-panel]').textContent.includes('ADMIN — Ágil'));
- assert.equal(state.projectionsBySession.lead.values.agentTeam.members[1].name,'backend');
- await React.act(async()=>{[...document.querySelectorAll('[data-team-panel] button')].find(button=>button.textContent.includes('ADMIN — Ágil')).click();});
- assert.equal(calls.at(-1),'child');
- await React.act(async()=>{root.unmount();});removeAlias();
- assert.equal(slots.entriesOfSlot(slotName)[0].component,originalPanel);dom.window.close();
+
+const footer = 'conversation.session.header.actions.subagent.footer';
+const action = 'conversation.session.header.actions';
+
+test('rc.2 real catalog renders complementary persisted aliases without replacing native navigation', async t => {
+  const dom = new JSDOM('<html><head></head><body><div id="root"></div></body></html>', { url: 'http://localhost' });
+  const globals = ['window', 'document', 'HTMLElement', 'getComputedStyle', 'IS_REACT_ACT_ENVIRONMENT'];
+  const previous = Object.fromEntries(globals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement,
+    getComputedStyle: dom.window.getComputedStyle, IS_REACT_ACT_ENVIRONMENT: true });
+  let root;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+    dom.window.close();
+    for (const key of globals) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key]); else delete globalThis[key];
+    }
+  });
+  root = createRoot(document.getElementById('root'));
+  const slots = new SlotCore();
+  slots.register({ name: 'root', children: {
+    [action]: { kind: 'list', scope: 'session' },
+    'conversation.session.header.lineage': { kind: 'single', scope: 'session' },
+    'conversation.composer': { kind: 'chain', scope: 'session' },
+  } }, () => null);
+  const calls = [];
+  const values = { agentTeam: { enabled: true, tasks: [] }, agentTeamDisplayNames: { child: 'Backend — Revisão', orphan: 'Not in catalog' },
+    subagentCatalog: [{ id: 'child', name: 'backend', label: 'Native backend', mode: 'continuable' }] };
+  const state = { byId: { child: { running: false } }, projectionsBySession: {
+    lead: { state: 'ready', values }, child: { state: 'ready', values: { subagentCatalog: [] } },
+  } };
+  const dictionaries = new Map([['agent-team', {}]]);
+  const disposers = [];
+  const ctx = {
+    slots: { entries: name => slots.entries(name), subscribe: (name, fn) => slots.subscribe(name, fn),
+      inject: (_name, callback) => callback(), register: (spec, component) => {
+        const dispose = slots.register(spec, component); disposers.push(dispose); return dispose;
+      } },
+    locale: { register: (ns, dict) => {
+      assert.equal(dictionaries.has(ns), false, 'unique locale namespace'); dictionaries.set(ns, dict);
+      return () => dictionaries.delete(ns);
+    }, bind: ns => key => dictionaries.get(ns)?.en?.[key] ?? key },
+    effect: callback => { const dispose = callback(); disposers.push(dispose); },
+    inject: () => {}, // Sidebar resource service is outside this focused catalog fixture.
+    uiWorkspace: { openSession: address => calls.push(address) }, sidebarRight: { openResource: () => {} },
+    sessions: { refreshProjections: async () => {}, list: { getSnapshot: () => state } },
+  };
+  const MenuSurface = React.forwardRef(({ children, ...props }, ref) => React.createElement('div', { ...props, ref }, children));
+  const primitives = new Proxy({ MenuSurface, Tooltip: ({ children }) => children }, { get: (object, key) => object[key] ?? (() => null) });
+  const modules = { react: React, 'react/jsx-runtime': jsx, 'react-dom': ReactDOM,
+    '@deepseek-ai/dsh-client-ui-primitives': primitives };
+  async function load(path) {
+    let result;
+    vm.runInNewContext(await readFile(new URL(path, import.meta.url), 'utf8'), {
+      window: { __ModuleLoader__: { load: spec => { result = spec.factory(name => {
+        assert.ok(modules[name], 'declared browser module: ' + name); return modules[name];
+      }); } } }, document, getComputedStyle, setTimeout, clearTimeout, queueMicrotask, console, URLSearchParams,
+    });
+    return result;
+  }
+  const upstream = await load('../node_modules/@deepseek-ai/dsh-client-ui-subagent/lib/client.js');
+  upstream.apply(ctx);
+  const native = slots.entriesOfSlot(action)[0];
+  assert.equal(native.options.id, 'subagent-catalog');
+  const aliases = await load('../lib/client.js');
+  const ownDisposersStart = disposers.length;
+  aliases.apply(ctx);
+  assert.equal(slots.entriesOfSlot(action).length, 1);
+  assert.equal(slots.entriesOfSlot(action)[0].component, native.component);
+  assert.equal(slots.entriesOfSlot(footer).length, 1);
+  const nativeInject = native.inject('lead');
+  const standard = { sessionId: 'lead', useSession: selector => selector({ subagent: null }),
+    useSessions: selector => selector(state), useProjection: (key, selector) => selector(values[key]),
+    useSessionStatus: selector => selector(new Map()), useFooterAvailable: selector => selector(true) };
+  const render = () => React.createElement(native.component, { ...standard, ...nativeInject,
+    t: ctx.locale.bind('subagent'), renderSlot: name => slots.entriesOfSlot(name).map(entry => React.createElement(entry.component,
+      { key: entry.options.id, ...standard, t: ctx.locale.bind(entry.locale) })) });
+  await React.act(async () => root.render(render()));
+  await React.act(async () => document.querySelector('button').click());
+  const panel = () => document.querySelector('[data-agent-team-aliases]');
+  assert.ok(document.querySelector('[data-subagent-panel]'));
+  assert.ok(panel().textContent.includes('Backend — Revisão'));
+  assert.ok(panel().textContent.includes('backend · child'));
+  assert.equal(panel().textContent.includes('Not in catalog'), false);
+  assert.equal(panel().querySelectorAll('button,a').length, 0, 'footer does not claim native navigation');
+  values.agentTeamDisplayNames = { child: '<img src=x onerror=alert(1)> ADMIN — Ágil' };
+  await React.act(async () => root.render(render()));
+  assert.ok(panel().textContent.includes('<img src=x onerror=alert(1)> ADMIN — Ágil'));
+  assert.equal(panel().querySelector('img'), null, 'aliases render as React text');
+  assert.equal(values.subagentCatalog[0].name, 'backend');
+  assert.equal(values.subagentCatalog[0].label, 'Native backend');
+  const nativeRow = document.querySelector('[role="treeitem"]');
+  assert.ok(nativeRow.textContent.includes('Native backend'));
+  await React.act(async () => nativeRow.click());
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), { parentSessionId: 'lead', childSessionId: 'child', mode: 'continuable' });
+  await React.act(async () => document.querySelector('button').click());
+  values.agentTeamDisplayNames = {};
+  await React.act(async () => root.render(render()));
+  assert.equal(panel(), null, 'reset removes aliases without touching catalog');
+  assert.equal(slots.entriesOfSlot(action)[0].component, native.component);
+  for (const dispose of disposers.splice(ownDisposersStart).reverse()) dispose?.();
+  assert.equal(slots.entriesOfSlot(footer).length, 0, 'plugin unload removes only its footer');
+  assert.equal(slots.entriesOfSlot(action)[0].component, native.component);
+  assert.equal(dictionaries.has('agent-team-profile-aliases'), false);
+  for (const dispose of disposers.reverse()) dispose?.();
 });

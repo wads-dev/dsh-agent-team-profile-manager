@@ -1,38 +1,17 @@
-## Current verification — DSH 0.2.2-rc.1
+# Verification — local DSH 0.2.2-rc.2 migration
 
-Validated locally with the exact published DSH 0.2.2-rc.1 packages.
+Verified 2026-11-15 against exact installed rc.2 dependencies. The version guard, build and 15 automated tests pass. See [migration status](RC2-MIGRATION.md) for limitations and the proposed joint test.
 
-# Verification — DSH 0.2.2-rc.1
+## Evidence
 
-This verification supersedes the earlier alpha.2 compatibility report.
+- Actual native spawn/fork tools and keyless scripted LLM adapters verify requested model and reasoning effort.
+- Runtime self-switch and root-controlled descendant switch verify actual next inference, stable Session ID and prior history.
+- Unauthorized routes, unknown targets, invalid effort, cancellation and idempotent retries are exercised.
+- Real tool receipts feed the alias projection; JSONL restart tests preserve aliases and native model selection.
+- The complementary footer is tested with the actual upstream catalog bundle and SlotCore; native navigation targets are unchanged.
 
-Verified 2026-11-07 with Node v22.23.3 and matching published rc.1 DSH packages. Cordis 4.1.0, Loader 1.1.0.
+## Not verified / not equivalent
 
-## Passed
+No live-profile installation, real-provider inference or running-browser end-to-end check was performed. The Host currently installed is rc.3, so this rc.2 build must not be loaded into it. Alias display is complementary and only covers direct children in the root catalog; it does not replace native row names, breadcrumbs or sidebar labels. Previous Team-only APIs, custom spawn_teammate, subagent blocking and compact_teammate are not part of this adaptation. The migration replaces the old integration suite; its previous coverage must not be inferred from the current 15 tests.
 
-- Clean npm ci --ignore-scripts with the updated lockfile.
-- npm run build: Host ESM and matching rc.1 alias-aware browser bundle.
-- npm test: 32 passed, zero failed/skipped (re-run against rc.1).
-- npm pack --dry-run: release package inspection.
-- npm ls --depth=0: no invalid or missing direct dependencies; DSH 0.2.2-rc.1, Cordis 4.1.0 and Loader 1.1.0.
-- git diff --check.
-
-## Coverage
-
-Actual released AgentLoop, Team service/tools, SubagentRuntime, spawn/fork providers, filesystem/working-directory services, Cordis Loader and JSONL persistence are exercised. Keyless scripted adapters assert actual request provider/model/reasoningEffort/sessionId and history, not only metadata.
-
-Tests cover fresh/fork explicit routes and inheritance; repeated same-session switches; cold resume/full runtime restart; adapter route and reasoning-effort validation; cancelled/invalid switches; concurrent spawn isolation; assembly snapshot timing; route and alias persistence; stable member/task identity; duplicate-enabled Team composition, both Loader orders and toggles; alias-aware browser DOM navigation; global subagent tools registered after startup; scoped bypass denial; Team creation while tools are blocked; prompt model-choice/reuse guidance; operator opt-out and disposal restoring tool access.
-
-## Compatibility review
-
-The rc.1 Team service still does not forward `agentOptions` from Team spawning; the async-local `startActivation` bridge remains necessary and its request contract is unchanged. Required model-selection, service decoration, projection and browser-panel contracts pass the integration suite. The runtime guard checks exact rc.1 versions (including dsh-scope), and the version guard checks declared DSH dependency pins and lockfile root.
-
-### Earlier alpha migration fixes retained
-
-The removed startContinuable method is replaced by startActivation. The router preserves upstream transactions and injects options only for the exact async-local Team spawning parent and reserved child ID. Upstream team:identity must be shared alongside team:policy to avoid duplicate-registration failures. Persistence now exposes a plugin namespace instead of a default export; test fixtures must mount workingDirectory for SubagentRuntime.
-
-## Limits / deployment still required
-
-No cloud credentials, live provider billing, global installation or user profile configuration changed. No running DSH Host restart or existing-URL Web verification performed. The Host and profile packages must match this exact rc.1 release before loading the plugin. The historical inactive-context live incident is not independently reproduced or claimed universally fixed.
-
-Browser verification is DOM-based against the built rc.1 panel. Native compaction is tested with a stub backend, not real summarization. Model-choice confirmation is system-prompt/tool-description guidance; code validates routes with their adapters and enforces standard-subagent tool denial, not proof of human consent. Tool restrictions are not a security boundary against arbitrary host-side code or other plugins.
+No npm publication is authorized by this verification report.

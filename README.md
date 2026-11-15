@@ -1,130 +1,38 @@
 # dsh-agent-team-profile-manager
 
-Agent Teams model routing, durable display aliases and Team-first delegation for **DSH 0.2.2-rc.1 only**. Node 22.23+.
+> Local DSH `0.2.2-rc.2` migration prototype. **Not published; do not install into a mismatched or production profile.** See [migration status](docs/RC2-MIGRATION.md).
 
-## What this release fixes
+## Current scope
 
-- Migrates the Team routing bridge from removed `startContinuable` to `startActivation`, retaining upstream provisioning, authority, cancellation and persistence.
-- Restores explicit provider/model/reasoning-effort selection for fresh and fork teammates and runtime model changes without replacing their sessions.
-- Shares both upstream Team policy and the new Team identity context when duplicate tool compositions are enabled, preventing duplicate-registration failures.
-- Builds the alias-aware Web panel from the matching 0.2.2-rc.1 upstream browser bundle, not the old RC panel. Display aliases preserve stable message/task targets.
+The rc.2 Agent Teams service is a task board over the native subagent tree. This plugin preserves native subagent and Team tools; it no longer mounts `spawn_teammate` or blocks `subagent`/`subagent_fork`. Native delegation tools must be configured with `modelSelection: true` to expose explicit child routes, and the Session must authorize the route. The plugin does not grant route authorization.
 
-## Team-first delegation (default)
-
-The plugin hides global `subagent`, `subagent_fork` and `list_subagent_models` tools in Team member scopes. A scoped dispatch guard also rejects those names if a scoped registration bypasses visibility restrictions. Late registration and plugin disposal are handled. This is a tool-level policy, not a sandbox against arbitrary host code or other plugins.
-
-**Do not disable the subagent runtime or spawn/fork providers.** Agent Teams uses that shared runtime internally. Only the standard model-facing delegation tools are blocked.
-
-A dedicated system-prompt section and spawn-tool description instruct the model to:
-
-1. Obtain human authorization to delegate; treat a request for sub-agents as Team-based delegation.
-2. Ask which provider/model to use before delegation: one for all members, a per-responsibility mapping, or explicit inheritance. Reuse the choice for its stated scope.
-3. Discover live provider/model routes via `list_models`; never guess model IDs or consent.
-4. Reuse suitable members with `list_agents` and `send_message` instead of creating one per task.
-5. Use Team runtime switch tools rather than claiming only sub-agents support model selection.
-
-**Model-choice confirmation is prompt guidance, not mechanically verified consent.** The plugin cannot reliably infer from arbitrary conversation text that a human chose a model. It does not add a misleading “confirmed” boolean the model could fill itself.
-
-Operator opt-out in the router's existing config: `disableSubagents: false`. Default is true; the model-choice guidance remains enabled in either mode.
-
-## Tools
-
-| Tool | Scope / behavior |
+| Tool | Behavior |
 | --- | --- |
-| spawn_teammate | Lead; upstream tool plus optional provider/model/reasoning_effort. Provider and model together; omission preserves inheritance. |
-| list_models | Team members; live registered-provider catalogs and exact adapter metadata. |
-| get_current_model | Actual last-used route, pending and next route, session ID. |
-| switch_model | Teammate; changes its own route at the next model invocation. |
-| switch_teammate_model | Lead; changes an exact live teammate's next route. Cold teammates must first be loaded via send_message. |
-| set_teammate_display_name | Lead; edit/reset visual names, including cold members. Stable targets do not change. |
-| compact_teammate | Lead; native compaction of a loaded idle teammate; no wake/recreation. Summary may lose detail. |
+| `list_models` | Lists Session-authorized registered routes; metadata availability is not a successful inference. |
+| `get_current_model` | Reports the last-used, pending and next model route for this agent. |
+| `switch_model` | Selects the caller’s authorized route for its next step. |
+| `switch_teammate_model` | Tree root only: selects a loaded reachable descendant’s next route. |
+| `set_teammate_display_name` | Tree root only: sets/resets a durable alias without changing IDs or tool targets. |
 
-A running inference is never switched midway. A selected model may take effect on the next step of the same turn. The Lead's own route is not changed by these teammate tools.
+An admitted inference is not interrupted by selection. Unloaded targets must be resumed through native controls before model switching. A persistence error after a selection append is reported as uncertain durability, not falsely rolled back; inspect the route before retrying.
 
-## Model discovery and selection
+Aliases appear in a **complementary footer** in the subagent catalog. Native row labels, breadcrumbs and sidebar remain upstream-owned and unchanged. Only aliases of direct children present in the displayed root catalog are shown. This is not yet equivalent to replacing every visible name.
 
-Team model routing discovers and validates routes through the live DSH LLM providers. Model switches apply on the next invocation while retaining the teammate session and history.
+## Validation
 
-`list_models` discovers the live catalogs of registered providers; an exact provider/model query resolves the route directly even if the provider omits it from its advisory catalog. Provider catalog failures are reported, and exact lookup remains available. A missing provider, invalid effort or an exact model the adapter cannot resolve fails before committing a route or creating a teammate. The `available` flag means adapter metadata resolved, not that the provider has verified the model, credentials, quota, or a successful inference; some adapters accept arbitrary model IDs. No model catalog is hardcoded.
-
-## Build and validation
-
-Plugin release: **0.2.2-rc.1**. Compatible Host/Agent Teams release: **0.2.2-rc.1**.
-
-~~~sh
+```sh
 npm ci --ignore-scripts
+npm run check:versions
 npm run build
 npm test
-npm pack --dry-run
-~~~
+```
 
-Integration tests cover actual 0.2.2-rc.1 AgentLoop requests through keyless adapters, live model discovery, historical-session compatibility, fresh/fork spawning, repeated switches and same-session history, JSONL restart/resume, invalid/cancelled selections, concurrent routing, real Cordis Loader duplicate composition/toggles, alias persistence/browser DOM navigation, and delegation visibility/dispatch/cleanup/opt-out. Compaction uses a stub backend; real summarization is not tested.
+Tests use actual rc.2 AgentLoop, subagent providers, native tool execution and JSONL storage with keyless scripted LLM adapters. The browser test mounts the real upstream catalog with fixture primitives/renderer. Live-profile and real-provider verification remain pending.
 
-The suite does not exercise cloud credentials or install/restart the user's running Web profile. A successful local suite is not a claim of live-profile verification.
+## Version and release rules
 
-## Install / update a profile
+**The plugin version and all declared DSH dependency versions must match exactly.** CI and the manual publish workflow run `npm run check:versions`. Never invent a plugin-only next prerelease to fix a publishing mistake.
 
-Stop and back up the selected profile first. Use Host and Agent Teams bundle **0.2.2-rc.1** with this plugin **0.2.2-rc.1**. Do not mix DSH package versions or force peer resolution.
+Every publication uses npm **`latest`**, including alpha and RC versions, through GitHub Actions OIDC/provenance without an npm token. Publication requires explicit human approval after joint validation; this prototype must not be published yet.
 
-~~~sh
-REPO="$HOME/path/to/dsh-agent-team-profile-manager" # replace
-PROFILE=web # replace with your actual profile
-npm ci --ignore-scripts
-npm run build
-npm test
-dsh --version # must be 0.2.2-rc.1
-# Install/update the upstream bundle before this plugin:
-dsh plugin --profile "$PROFILE" add @deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-rc.1
-dsh plugin --profile "$PROFILE" add "link:$REPO"
-dsh --profile "$PROFILE" --dump-config
-dsh --profile "$PROFILE"
-~~~
-
-The bundle patch disables the standalone tool-agent-team row and mounts the same upstream tools below the router decorators. Keep Agent Teams enabled and ordered before this plugin. Do not add a duplicate manual router row. Hot-install over existing live Team tools is deliberately rejected; restart the profile. If link resolution does not share Host packages correctly, install an npm-packed tarball instead.
-
-After installing, restart the existing DSH Host and refresh its existing Web URL to load rebuilt client assets. This repository does not automatically modify your profile, global DSH installation, or running server.
-
-## Release policy and naming
-
-Plugin version and every DSH integration dependency must exactly match the target DSH release. Cordis uses the matching upstream framework range. Prepack rebuilds and runs tests, and release tests reject mismatched DSH pins. Upstream changes still require review and tests; matching version numbers alone do not ensure compatibility.
-
-The public package is **`dsh-agent-team-profile-manager`**. It extends the official **`@deepseek-ai/dsh-experimental-agent-team-profile`** bundle; it does not replace or rename that upstream package. Plugin, bundle entry, browser module and locale namespace use the new manager identity. Persisted projection/event keys remain unchanged so existing aliases and routing history survive the rename.
-
-For an existing local installation, stop the Host, remove the old plugin bundle/dependency and enable only the new manager entry. Do not load both identities together. Source repository: https://github.com/wads-dev/dsh-agent-team-profile-manager.
-
-~~~sh
-npm pack --dry-run
-# Authenticate and verify ownership/availability before the first publication:
-npm whoami
-npm publish --tag latest --access public
-npm dist-tag ls dsh-agent-team-profile-manager
-~~~
-
-Every release, including prereleases, publishes to the npm `latest` dist-tag via GitHub Actions OIDC with provenance. This workflow does not create secondary dist-tags or use an npm token.
-
-After publication, install using:
-
-~~~sh
-PROFILE=web # replace with your actual profile
-dsh plugin --profile "$PROFILE" add @deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-rc.1
-dsh plugin --profile "$PROFILE" add dsh-agent-team-profile-manager@0.2.2-rc.1
-~~~
-
-## GitHub Actions CI and publication
-
-The workflows follow the Live Voice repository pattern, adapted to this single-package npm repository:
-
-- [CI](.github/workflows/ci.yml): every push and PR, Ubuntu, Node 24, cached npm ci, build, tests and package inspection.
-- [Publish to npm](.github/workflows/publish.yml): manual workflow_dispatch on main only, serialized releases, npm environment, OIDC/provenance, metadata/version checks, duplicate npm/Git tag refusal, dry-run, Git tag, OIDC publication and GitHub Release.
-
-Before the first automated release:
-
-1. Create the GitHub environment **npm** in **wads-dev/dsh-agent-team-profile-manager**, preferably with main-only deployment and required reviewers.
-2. Configure npm Trusted Publisher: GitHub Actions, owner **wads-dev**, repository **dsh-agent-team-profile-manager**, workflow **publish.yml**, environment **npm**. A first manual publication may be required to create the package before configuring its trusted publisher.
-3. Run **Publish to npm** from main. Version **0.2.2-rc.1** publishes directly to `latest` via OIDC, without `NPM_TOKEN`. The GitHub Release is marked prerelease.
-
-Git tagging and npm publication are not atomic. If publication fails after Git tagging, inspect the run and registry before recovery; do not blindly republish an immutable version.
-
-## Attribution
-
-MIT. See [NOTICE](NOTICE) and [LICENSE](LICENSE). Historical incident notes under docs describe earlier RC releases and are not current compatibility guarantees.
+MIT. See [NOTICE](NOTICE) and [LICENSE](LICENSE).

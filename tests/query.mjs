@@ -11,12 +11,14 @@ function cut(
   source                     ,
   header               ,
   events                         ,
+  projections,
 )                     {
   const lease = ()                     => ({
     source,
     header,
     inheritedEventCount: SessionLogOffset(0),
     events,
+    projections,
     cursor: events.at(-1)?.seq ?? -1,
     retain: lease,
     [Symbol.dispose]: () => {},
@@ -26,7 +28,7 @@ function cut(
 
 /** Session query implementation whose search faces are outside these tests. */
 export class TestSessionQuery extends SessionQueryEngine {
-  static          inject = ['sessions', 'sessionPersistence']
+  static          inject = ['sessions', 'sessionPersistence', 'sessionProjections']
 
   /** Live-preferred observation backed directly by a short-lived persistence read handle. */
            async observeSession(
@@ -34,20 +36,16 @@ export class TestSessionQuery extends SessionQueryEngine {
     options                            = {},
   )                              {
     const live = this.ctx.sessions.get(sessionId)
-    if (live !== undefined) return cut('live', live.header, live.snapshotEvents())
+    if (live !== undefined) return cut('live', live.header, live.snapshotEvents(), this.ctx.sessionProjections.snapshot(live))
     const handle = await this.ctx.sessionPersistence.open(
       sessionId,
       'read',
       options.signal === undefined ? {} : { signal: options.signal },
     )
     try {
-      return cut(
-        'prepared',
-        handle.header,
-        (await handle.read(
-          0, undefined, options.signal === undefined ? {} : { signal: options.signal },
-        )).events,
-      )
+      const events = (await handle.read(0, undefined, options.signal === undefined ? {} : { signal: options.signal })).events;
+      const projections = this.ctx.sessionProjections.restore({}, events, SessionLogOffset(0), handle.header, SessionLogOffset(0)).snapshot;
+      return cut('prepared', handle.header, events, projections)
     } finally {
       await handle.close()
     }

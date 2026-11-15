@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2-rc.2 (unreleased, migration in progress)
+
+- Begin adapting model routing to the native subagent tree and agent model selection.
+- Visual aliases and the full regression suite are not yet migrated; do not publish.
+
 ## Unreleased
 
 - Enable dynamic Team model discovery, spawning and runtime switching for existing and new sessions; preserve session history and model selections across restarts.

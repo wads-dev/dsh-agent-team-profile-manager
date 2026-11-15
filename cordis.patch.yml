@@ -1,9 +1,4 @@
-# Original tools are mounted unchanged by the router AFTER its decorators.
-- id: tool-agent-team
-  disabled: true
+# Preserve the native Team and subagent services and their tool registrations.
 - insert:
     - id: agent-team-profile-manager
       name: dsh-agent-team-profile-manager
-      config:
-        freshProvider: spawn
-        forkProvider: fork

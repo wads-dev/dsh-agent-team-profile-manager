@@ -1,70 +1,57 @@
-import { installModelSelection } from '@deepseek-ai/dsh-agent';
-import { parentAgentOptionsForDelegation } from '@deepseek-ai/dsh-subagent';
-import { requestedAgentOptions } from '../vendor/model-selection.js';
+/** Runtime switches use DSH's native durable model owner, never request hooks. */
 export const same = (a, b) => !!a && !!b && a.provider === b.provider && a.model === b.model && a.reasoningEffort === b.reasoningEffort;
+const wire = route => ({ provider: route?.provider ?? null, model: route?.model ?? null, reasoning_effort: route?.reasoningEffort ?? null });
+
 export class ModelRouter {
-  constructor(ctx) { this.ctx = ctx; this.refs = new Map(); this.locks = new Map(); }
-  state(session) { return this.ctx.sessionProjections.stateOf(session, 'agentTeamModelRouter'); }
-  install(agent) {
-    if (this.refs.has(agent)) return;
-    const ref = { current: this.state(agent.session)?.route ?? undefined, assembled: undefined };
-    const dispose = this.ctx.agentTeams.tryMembership(agent)?.role === 'teammate' ? installModelSelection(agent.ctx, ref) : () => {};
-    const observe = agent.ctx.on('session/event', (session, event) => {
-      if (session === agent.session && event.type === 'model/selection') ref.current = event.data;
-    });
-    this.refs.set(agent, { ref, dispose: () => { observe(); dispose(); } });
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.locks = new Map();
   }
-  remove(agent) { this.refs.get(agent)?.dispose(); this.refs.delete(agent); }
-  current(agent) {
-    const config = agent.session.requestHeader()?.config ?? agent.options;
-    return { provider: config.provider ?? null, model: config.model ?? null, reasoningEffort: config.reasoningEffort ?? undefined };
-  }
+
   info(agent) {
-    const current = this.current(agent);
-    const selected = this.state(agent.session)?.route ?? this.refs.get(agent)?.ref.current;
-    const wire = route => route ? { provider: route.provider, model: route.model, reasoning_effort: route.reasoningEffort ?? null } : null;
-    return { session: agent.id, current: wire(current), pending: selected && !same(current, selected) ? wire(selected) : null, next: wire(selected ?? current) };
+    const config = agent.session.requestHeader()?.config;
+    const current = config ?? agent.options;
+    const next = agent.model.current() ?? current;
+    return { session: agent.id, current: wire(current), pending: same(current, next) ? null : wire(next), next: wire(next) };
   }
-  async validate(agent, args, signal, spawn = false) {
-    const baseline = parentAgentOptionsForDelegation(agent);
-    const requested = requestedAgentOptions(baseline, undefined, args);
-    const provider = requested?.provider ?? baseline.provider;
-    const model = requested?.model ?? baseline.model;
-    if (!this.ctx.llm.listProviders().some(candidate => candidate.id === provider)) throw new Error('Unknown provider "' + provider + '". Use list_models to inspect routes.');
-    // Exact adapter metadata is authoritative; no hardcoded catalog or guessed identifiers.
-    try { await this.ctx.llm.resolveModelInfo(provider, model, signal); }
-    catch (error) { signal.throwIfAborted(); throw new Error('Cannot resolve model "' + model + '" for provider "' + provider + '". Use list_models to inspect routes. ' + error.message, { cause: error }); }
-    const changed = provider !== baseline.provider || model !== baseline.model;
-    const reasoningEffort = requested?.reasoningEffort ?? (!changed ? baseline.reasoningEffort : undefined);
-    const resolved = await this.ctx.llm.resolveCallConfig({ provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }, signal);
-    signal.throwIfAborted();
-    return spawn ? requested : { provider, model, ...(resolved.reasoningEffort === undefined ? {} : { reasoningEffort: resolved.reasoningEffort }) };
+
+  /** Match native subagent selection authority: saved exact routes, or caller's current route. */
+  allows(caller, route) {
+    const event = caller.session.snapshotEvents().find(event => event.type === 'subagent/model-selection-policy');
+    const allowed = event?.data?.allowedModels;
+    if (allowed !== undefined) return Array.isArray(allowed) && allowed.some(item => item.provider === route.provider && item.model === route.model);
+    const fallback = caller.model.current() ?? caller.options;
+    return route.provider === fallback.provider && route.model === fallback.model;
   }
-  switch(agent, args, signal) {
-    const previous = this.locks.get(agent.id) ?? Promise.resolve();
+
+  switch(caller, target, args, signal) {
+    const previous = this.locks.get(target.id) ?? Promise.resolve();
     const operation = previous.then(async () => {
-      const membership = this.ctx.agentTeams.tryMembership(agent);
-      if (membership?.role !== 'teammate') throw new Error('switch_model requires an exact live Agent Team teammate');
-      const route = await this.validate(agent, args, signal);
-      if (this.ctx.agents.get(agent.id) !== agent) throw new Error('Teammate unloaded while validating route; retry after resume');
-      const current = this.current(agent);
-      const selected = this.refs.get(agent)?.ref;
-      if (!selected) throw new Error('Router is not installed in this Agent');
-      if (same(selected.current ?? current, route)) return { changed: false, ...this.info(agent), effective: 'next-model-invocation' };
-      agent.session.append('model/selection', route);
-      selected.current = route;
-      // Publish the live selection immediately after the append. Await persistence before success.
-      // If flush fails the route is still committed; never falsely report a rollback.
-      try { await this.ctx.sessions.flush(agent.session); }
-      catch (error) {
-        this.ctx.logger.warn('[agent-team-profile-manager] session=' + agent.id + ' route committed in memory, persistence flush failed');
-        throw new Error('Route committed in memory but durability checkpoint failed; inspect get_current_model before retrying', { cause: error });
+      signal.throwIfAborted();
+      if (!args.provider || !args.model) throw new Error('Both provider and model are required');
+      if (!this.allows(caller, args)) throw new Error('Requested route is not allowed for this Session');
+      const route = {
+        provider: args.provider,
+        model: args.model,
+        ...(args.reasoning_effort === undefined ? {} : { reasoningEffort: args.reasoning_effort }),
+      };
+      await this.ctx.llm.resolveModelInfo(route.provider, route.model, signal);
+      // Preflight validation only: do not pin the adapter's default effort into the saved selection.
+      await this.ctx.llm.resolveCallConfig(route, signal);
+      signal.throwIfAborted();
+      if (this.ctx.agents.get(caller.id) !== caller || this.ctx.agents.get(target.id) !== target || this.ctx.subagents.rootOf(target) !== this.ctx.subagents.rootOf(caller)) {
+        throw new Error('Caller or target is no longer a live member of this tree');
       }
-      this.ctx.logger.info('[agent-team-profile-manager] teammate=' + membership.name + ' session=' + agent.id + ' from=' + current.provider + '/' + current.model + ' to=' + route.provider + '/' + route.model + ' effective=next-model-invocation');
-      return { changed: true, ...this.info(agent), effective: 'next-model-invocation', message: 'The current inference is unchanged. The selected route is used at the next prompt assembly/model invocation (possibly the next step of this DSH turn).' };
+      const changed = !same(target.model.current(), route);
+      if (changed) target.model.select(route);
+      // Flush even on an idempotent retry after an earlier uncertain checkpoint.
+      try { await this.ctx.sessions.flush(target.session); }
+      catch (error) { throw new Error('Route committed in memory but durability checkpoint failed; inspect get_current_model before retrying', { cause: error }); }
+      return { changed, ...this.info(target), effective: 'next-model-invocation' };
     });
-    const tail = operation.catch(() => undefined); this.locks.set(agent.id, tail);
-    void tail.then(() => { if (this.locks.get(agent.id) === tail) this.locks.delete(agent.id); });
+    const tail = operation.catch(() => undefined);
+    this.locks.set(target.id, tail);
+    void tail.then(() => { if (this.locks.get(target.id) === tail) this.locks.delete(target.id); });
     return operation;
   }
 }
