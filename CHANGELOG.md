@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2-rc.5
+
+- Align plugin, declared DSH packages and guard exactly to rc.5.
+- Public integration contracts and relevant UI sources match rc.4; validate with the rc.5 integration suite.
+
 ## 0.2.2-rc.4
 
 - Align plugin, declared DSH packages and runtime guard exactly to rc.4.

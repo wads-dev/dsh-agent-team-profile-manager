@@ -16,7 +16,7 @@ test('release declares actual browser entry and exact plugin and DSH peer versio
  assert.ok(patch.includes('name: '+pkg.name));
  const host=await import('../lib/index.js');
  assert.equal(host.name,'agent-team-profile-manager');
- assert.equal(pkg.version,'0.2.2-rc.4');
+ assert.equal(pkg.version,'0.2.2-rc.5');
  const dshVersion=pkg.version;
  for(const section of ['peerDependencies','devDependencies'])for(const [name,version] of Object.entries(pkg[section]))if(name.startsWith('@deepseek-ai/dsh-'))assert.equal(version,dshVersion,name);
  assert.equal(pkg.peerDependencies['@deepseek-ai/cordis'],'~4.1.0');
@@ -25,7 +25,7 @@ test('release declares actual browser entry and exact plugin and DSH peer versio
  assert.equal(lock.version,pkg.version);
  assert.equal(lock.packages[''].version,pkg.version);
  for(const section of ['peerDependencies','devDependencies'])for(const name of Object.keys(pkg[section]))if(name.startsWith('@deepseek-ai/dsh-'))assert.equal(lock.packages['node_modules/'+name]?.version,dshVersion,name);
- const compatibility=await readFile(new URL('../lib/compatibility/dsh-0.2.2-rc.4.js',import.meta.url),'utf8');
+ const compatibility=await readFile(new URL('../lib/compatibility/dsh-0.2.2-rc.5.js',import.meta.url),'utf8');
  assert.ok(compatibility.includes("const EXPECTED = '"+dshVersion+"';"));
  assert.ok(pkg.scripts.prepack.includes('npm test'));
  const upstream=JSON.parse(await readFile(new URL('../node_modules/@deepseek-ai/dsh-client-ui-agent-team/package.json',import.meta.url),'utf8'));

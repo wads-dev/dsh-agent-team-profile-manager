@@ -1,6 +1,6 @@
 # dsh-agent-team-profile-manager
 
-For DSH **`0.2.2-rc.4` only**. Validated with automated integration tests; live-profile and real-provider verification remain pending. See [verification](docs/VERIFICATION.md).
+For DSH **`0.2.2-rc.5` only**. Validated with automated integration tests; live-profile and real-provider verification remain pending. See [verification](docs/VERIFICATION.md).
 
 ## Current scope
 
@@ -27,12 +27,12 @@ npm run build
 npm test
 ```
 
-Tests use actual rc.4 AgentLoop, subagent providers, native tool execution and JSONL storage with keyless scripted LLM adapters. The browser test mounts the real upstream catalog with fixture primitives/renderer. Live-profile and real-provider verification remain pending.
+Tests use actual rc.5 AgentLoop, subagent providers, native tool execution and JSONL storage with keyless scripted LLM adapters. The browser test mounts the real upstream catalog with fixture primitives/renderer. Live-profile and real-provider verification remain pending.
 
 ## Version and release rules
 
 **The plugin version and all declared DSH dependency versions must match exactly.** CI and the manual publish workflow run `npm run check:versions`. Never invent a plugin-only next prerelease to fix a publishing mistake.
 
-Every publication uses npm **`latest`**, including alpha and RC versions, through GitHub Actions OIDC/provenance without an npm token. Publication requires explicit human approval; this rc.4 release was approved based on automated validation, without a joint live-profile test.
+Every publication uses npm **`latest`**, including alpha and RC versions, through GitHub Actions OIDC/provenance without an npm token. Publication requires explicit human approval; the user approved rc.5 publication based on automated validation. No joint live-profile test was performed.
 
 MIT. See [NOTICE](NOTICE) and [LICENSE](LICENSE).

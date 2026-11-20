@@ -12,7 +12,7 @@ import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots';
 const footer = 'conversation.session.header.actions.subagent.footer';
 const action = 'conversation.session.header.actions';
 
-test('rc.4 real catalog renders complementary persisted aliases without replacing native navigation', async t => {
+test('rc.5 real catalog renders complementary persisted aliases without replacing native navigation', async t => {
   const dom = new JSDOM('<html><head></head><body><div id="root"></div></body></html>', { url: 'http://localhost' });
   const globals = ['window', 'document', 'HTMLElement', 'getComputedStyle', 'IS_REACT_ACT_ENVIRONMENT'];
   const previous = Object.fromEntries(globals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));

@@ -18,7 +18,7 @@ import { SessionId } from '@deepseek-ai/dsh-session';
 import { MockAdapter, textResponse } from './adapter.mjs';
 import { TestSessionQuery } from './query.mjs';
 const signal=new AbortController().signal;
-test('rc.4 real subagent creation and runtime switch retain identity',async t=>{
+test('rc.5 real subagent creation and runtime switch retain identity',async t=>{
  const ctx=new Context();t.after(()=>ctx.fiber.dispose());
  await mountAgentLoopTestDependencies(ctx);
  const root=await mkdtemp(join(tmpdir(),'profile-rc2-'));
