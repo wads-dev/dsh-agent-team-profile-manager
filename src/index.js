@@ -1,5 +1,5 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
-import { assertCompatibility } from './compatibility/dsh-0.2.2-rc.2.js';
+import { assertCompatibility } from './compatibility/dsh-0.2.2-rc.4.js';
 import { displayNamesProjection, normalizeDisplayName } from './display-names/state.js';
 import { infoSchema, switchSchema, listSchema, jsonOutput } from './tools/schemas.js';
 import { ModelRouter } from './routing/model-router.js';

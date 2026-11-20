@@ -1,4 +1,4 @@
-/** Complementary rc.2 catalog footer. Native navigation and transport stay upstream-owned. */
+/** Complementary rc.4 catalog footer. Native navigation and transport stay upstream-owned. */
 window.__ModuleLoader__.load({
   id: 'dsh-agent-team-profile-manager',
   factory: require => {

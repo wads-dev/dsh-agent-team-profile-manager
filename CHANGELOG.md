@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.2-rc.4
+
+- Align plugin, declared DSH packages and runtime guard exactly to rc.4.
+- Relevant public APIs and subagent UI source match rc.3; the local integration suite passes.
+- Publish through GitHub Actions OIDC to `latest`; no running-profile changes.
+
+## 0.2.2-rc.3 (local work, not published)
+
+- Align the plugin and all DSH integrations exactly to rc.3.
+- Validate native creation, runtime model selection and complementary alias display against rc.3.
+- No push, npm publication or live-profile change authorized.
+
 ## 0.2.2-rc.2 (unreleased, migration in progress)
 
 - Begin adapting model routing to the native subagent tree and agent model selection.

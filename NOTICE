@@ -2,7 +2,7 @@ This plugin contains MIT-licensed code adapted from deepseek-ai/deepseek-harness
 
 src/vendor/model-selection.js: ivbrajkovic fork commit 30da5c7, packages/subagent/tool-subagent/src/model-selection.ts.
 tests/adapter.mjs and tests/query.mjs: release baseline 639ed01539 test helpers.
-lib/client.js: complementary display-alias footer implemented locally against the DSH 0.2.2-rc.2 slot contracts. It does not copy or override upstream navigation. The browser integration test loads the installed upstream @deepseek-ai/dsh-client-ui-subagent bundle (MIT). vendor/rc2-team-panel.js is retained only as historical source and is not a build input.
+lib/client.js: complementary display-alias footer implemented locally against the DSH 0.2.2-rc.3 slot contracts. It does not copy or override upstream navigation. The browser integration test loads the installed upstream @deepseek-ai/dsh-client-ui-subagent bundle (MIT). vendor/rc2-team-panel.js is retained only as historical source and is not a build input.
 
 Copyright (c) 2026 DeepSeek. Upstream contributors include Ivan Brajkovic.
 The upstream MIT license and local plugin MIT license are included in LICENSE.
