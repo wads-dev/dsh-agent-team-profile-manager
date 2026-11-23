@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.3-alpha.2
+
+- Align plugin and all DSH packages exactly to 0.2.3-alpha.2; Cordis `~4.2.0-alpha.1` and plugin loader `~1.2.0-alpha.1`, matching the Host.
+- **Breaking upstream change:** model-route authorization is now the live Host setting (`subagentModelSelection.allowedRoutes()`), not a per-Session event. Runtime switches and `list_models` follow the same rule as native delegation; legacy policy events are ignored.
+- **Breaking upstream change:** the subagent catalog moved from the header menu into the Session panel. Display aliases are now an official Session panel section (order 210, after Subagents) instead of the removed header footer slot.
+- 0.2.3-alpha.1 is intentionally skipped: its DSH packages declare Cordis `~4.1.0` while requiring 4.2 APIs (`Context.root`), so the runtime cannot start without forced dependency resolution.
+
 ## 0.2.2-rc.5
 
 - Align plugin, declared DSH packages and guard exactly to rc.5.

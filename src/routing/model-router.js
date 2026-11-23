@@ -15,11 +15,15 @@ export class ModelRouter {
     return { session: agent.id, current: wire(current), pending: same(current, next) ? null : wire(next), next: wire(next) };
   }
 
-  /** Match native subagent selection authority: saved exact routes, or caller's current route. */
+  /**
+   * Match native subagent selection authority (DSH 0.2.3+): the live Host setting
+   * authorizes exact routes for every Session; when it is disabled or absent, only
+   * the caller's current route is allowed. Invalid enabled settings throw (fail closed).
+   * Legacy per-Session `subagent/model-selection-policy` events are ignored, as upstream does.
+   */
   allows(caller, route) {
-    const event = caller.session.snapshotEvents().find(event => event.type === 'subagent/model-selection-policy');
-    const allowed = event?.data?.allowedModels;
-    if (allowed !== undefined) return Array.isArray(allowed) && allowed.some(item => item.provider === route.provider && item.model === route.model);
+    const allowed = this.ctx.get('subagentModelSelection')?.allowedRoutes();
+    if (allowed !== undefined) return allowed.some(item => item.provider === route.provider && item.model === route.model);
     const fallback = caller.model.current() ?? caller.options;
     return route.provider === fallback.provider && route.model === fallback.model;
   }

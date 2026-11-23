@@ -83,3 +83,11 @@ test('idempotent switches do not duplicate events and default effort stays unpin
  const aborted=await f.dispatch(f.lead,'switch_teammate_model',{teammate:'worker',provider:'one',model:'A'},{callSignal:controller.signal});assert.equal(aborted.isError,true);
  assert.equal(child.agent.model.current().model,'B');
 });
+
+test('legacy per-Session policy events no longer authorize routes; the live Host setting does',async t=>{
+ const f=await setup(t,[],{authorized:false});
+ f.lead.session.append('subagent/model-selection-policy',{allowedModels:[{provider:'one',model:'A'},{provider:'two',model:'B'}]});
+ const denied=await f.dispatch(f.lead,'switch_model',{provider:'two',model:'B'});
+ assert.equal(denied.isError,true);assert.equal(f.lead.model.current()?.model ?? f.lead.options.model,'A');
+ const listed=await f.call(f.lead,'list_models',{provider:'two',model:'B'});assert.deepEqual(listed.routes,[]);
+});

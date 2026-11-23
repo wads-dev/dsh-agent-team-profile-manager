@@ -13,24 +13,24 @@ import Subagents from '@deepseek-ai/dsh-subagent';
 import * as Spawn from '@deepseek-ai/dsh-subagent-spawn-in-process';
 import Teams from '@deepseek-ai/dsh-agent-team';
 import * as SubagentTool from '@deepseek-ai/dsh-tool-subagent';
+import ModelSettings from '@deepseek-ai/dsh-tool-subagent/model-selection-settings';
 import * as Router from '../lib/index.js';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import { MockAdapter, textResponse } from './adapter.mjs';
 import { TestSessionQuery } from './query.mjs';
 const signal=new AbortController().signal;
-test('rc.5 real subagent creation and runtime switch retain identity',async t=>{
+test('0.2.3-alpha.2 real subagent creation and runtime switch retain identity',async t=>{
  const ctx=new Context();t.after(()=>ctx.fiber.dispose());
  await mountAgentLoopTestDependencies(ctx);
  const root=await mkdtemp(join(tmpdir(),'profile-rc2-'));
  await ctx.plugin(Persistence,{root});await ctx.plugin(TestSessionQuery);
  await ctx.plugin(AgentLoop,{agents:[]});await ctx.plugin(FsLocal);await ctx.plugin(WorkingDirectory,{defaultDirectory:root});
- await ctx.plugin(Subagents);await ctx.plugin(Spawn,{providerName:'spawn'});await ctx.plugin(Teams,{defaultEnabled:true});await ctx.plugin(SubagentTool,{provider:'spawn',toolName:'subagent',modelSelection:true});
+ await ctx.plugin(Subagents);await ctx.plugin(Spawn,{providerName:'spawn'});await ctx.plugin(Teams,{defaultEnabled:true});await ctx.plugin(ModelSettings,{enabled:true,allowedModels:[{provider:'one',model:'A'},{provider:'two',model:'B'}]});await ctx.plugin(SubagentTool,{provider:'spawn',toolName:'subagent',modelSelection:true});
  const adapter=new MockAdapter([textResponse('initial'),textResponse('after switch')]);
  adapter.resolveModel=async(provider,model)=>({provider,id:model,name:model});
  ctx.llm.registerAdapter(['one','two'],adapter);
  await ctx.plugin(Router);
  const lead=await ctx.agentLoop.create(SessionId('lead'),{provider:'one',model:'A'});
- lead.session.append('subagent/model-selection-policy',{allowedModels:[{provider:'one',model:'A'},{provider:'two',model:'B'}]});
  const launch=ctx.tools.get('subagent',lead);assert.ok(launch.parameters.properties.provider);
  const batch=await ctx.tools.execute({agent:lead,signal,calls:[{type:'tool-call',id:'launch',name:'subagent',arguments:JSON.stringify({name:'worker',description:'Test',prompt:'First',provider:'one',model:'A'})}]});
  assert.equal(batch.results[0].result.isError,false,JSON.stringify(batch));
